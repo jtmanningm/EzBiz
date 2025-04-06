@@ -3,3 +3,6 @@ pandas
 snowflake-snowpark-python
 cryptography
 python-dateutil
+streamlit-extras
+passlib
+debugpy
