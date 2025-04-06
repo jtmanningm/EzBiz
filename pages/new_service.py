@@ -309,6 +309,27 @@ class ServiceScheduler:
         """Display editable account details for commercial usage.
         Uses consistent billing address keys and includes debug logging.
         """
+        account_id = account.get('ACCOUNT_ID')
+        
+        # Fetch service address if available
+        service_address = None
+        if account_id:
+            query = """
+            SELECT 
+                ADDRESS_ID, STREET_ADDRESS, CITY, STATE, 
+                ZIP_CODE, SQUARE_FOOTAGE, IS_PRIMARY_SERVICE
+            FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
+            WHERE ACCOUNT_ID = ?
+            AND IS_PRIMARY_SERVICE = TRUE
+            """
+            from database.connection import snowflake_conn
+            try:
+                result = snowflake_conn.execute_query(query, [account_id])
+                if result:
+                    service_address = result[0]
+            except Exception as e:
+                print(f"DEBUG: Error fetching service address: {str(e)}")
+        
         st.markdown("### Account Details")
         col1, col2 = st.columns(2)
         with col1:
@@ -345,22 +366,100 @@ class ServiceScheduler:
             self.form_data.customer_data['billing_city'] = st.text_input(
                 "City",
                 value=account.get('CITY', ''),
-                key="edit_city"
+                key="edit_billing_city"
             )
         with col2:
             self.form_data.customer_data['billing_state'] = st.text_input(
                 "State",
                 value=account.get('STATE', ''),
-                key="edit_state"
+                key="edit_billing_state"
             )
         self.form_data.customer_data['billing_zip'] = st.text_input(
             "ZIP Code",
             value=account.get('ZIP_CODE', ''),
-            key="edit_zip_code"
+            key="edit_billing_zip"
         )
+        
+        # Service Address Section
+        st.markdown("### Service Address")
+        
+        # Default to billing address if no service address found
+        if not service_address:
+            use_billing_as_service = True
+            service_address = {
+                'STREET_ADDRESS': account.get('BILLING_ADDRESS', ''),
+                'CITY': account.get('CITY', ''),
+                'STATE': account.get('STATE', ''),
+                'ZIP_CODE': account.get('ZIP_CODE', ''),
+                'SQUARE_FOOTAGE': 0,
+                'ADDRESS_ID': None
+            }
+        else:
+            # Check if service address matches billing address
+            use_billing_as_service = (
+                service_address.get('STREET_ADDRESS') == account.get('BILLING_ADDRESS') and
+                service_address.get('CITY') == account.get('CITY') and
+                service_address.get('STATE') == account.get('STATE') and
+                service_address.get('ZIP_CODE') == account.get('ZIP_CODE')
+            )
+            
+        self.form_data.customer_data['use_billing_as_service'] = use_billing_as_service
+        use_billing_as_service = st.checkbox(
+            "Same as Billing Address", 
+            value=use_billing_as_service,
+            key="edit_use_billing_as_service"
+        )
+        
+        if not use_billing_as_service:
+            self.form_data.customer_data['service_address'] = st.text_input(
+                "Street Address",
+                value=service_address.get('STREET_ADDRESS', ''),
+                key="edit_service_address"
+            )
+            col1, col2 = st.columns(2)
+            with col1:
+                self.form_data.customer_data['service_city'] = st.text_input(
+                    "City",
+                    value=service_address.get('CITY', ''),
+                    key="edit_service_city"
+                )
+            with col2:
+                self.form_data.customer_data['service_state'] = st.text_input(
+                    "State",
+                    value=service_address.get('STATE', ''),
+                    key="edit_service_state"
+                )
+            self.form_data.customer_data['service_zip'] = st.text_input(
+                "ZIP Code",
+                value=service_address.get('ZIP_CODE', ''),
+                key="edit_service_zip"
+            )
+            self.form_data.customer_data['service_addr_sq_ft'] = st.number_input(
+                "Square Footage",
+                min_value=0,
+                step=100,
+                value=int(service_address.get('SQUARE_FOOTAGE', 0) or 0),
+                key="edit_service_sq_ft"
+            )
+        else:
+            # If using billing address as service address, copy values
+            self.form_data.customer_data['service_address'] = self.form_data.customer_data['billing_address']
+            self.form_data.customer_data['service_city'] = self.form_data.customer_data['billing_city']
+            self.form_data.customer_data['service_state'] = self.form_data.customer_data['billing_state']
+            self.form_data.customer_data['service_zip'] = self.form_data.customer_data['billing_zip']
+            self.form_data.customer_data['service_addr_sq_ft'] = 0
+        
+        # Save service address ID if available
+        self.form_data.customer_data['service_address_id'] = service_address.get('ADDRESS_ID')
+        
         # Save account ID to form data
-        self.form_data.customer_data['account_id'] = account.get('ACCOUNT_ID')
+        self.form_data.customer_data['account_id'] = account_id
         self.form_data.customer_data['is_commercial'] = True
+        
+        # Add save button for current account
+        if st.button("Update Account", type="primary"):
+            self.save_account_and_get_id()
+        
         debug_print("Displayed account details in display_account_details")
 
 
@@ -416,6 +515,48 @@ class ServiceScheduler:
                 key="new_zip_code"
             )
             
+            # Service Address Inputs
+            st.markdown("### Service Address")
+            
+            # Use same as billing address option
+            use_billing_as_service = st.checkbox(
+                "Same as Billing Address",
+                value=self.form_data.customer_data.get('use_billing_as_service', True),
+                key="use_billing_as_service"
+            )
+            
+            if not use_billing_as_service:
+                service_address = st.text_input(
+                    "Street Address",
+                    value=self.form_data.customer_data.get('service_address', ''),
+                    key="new_service_street"
+                )
+                col1, col2 = st.columns(2)
+                with col1:
+                    service_city = st.text_input(
+                        "City",
+                        value=self.form_data.customer_data.get('service_city', ''),
+                        key="new_service_city"
+                    )
+                with col2:
+                    service_state = st.text_input(
+                        "State",
+                        value=self.form_data.customer_data.get('service_state', ''),
+                        key="new_service_state"
+                    )
+                service_zip = st.text_input(
+                    "ZIP Code",
+                    value=self.form_data.customer_data.get('service_zip', ''),
+                    key="new_service_zip"
+                )
+                service_addr_sq_ft = st.number_input(
+                    "Square Footage",
+                    min_value=0,
+                    step=100,
+                    value=self.form_data.customer_data.get('service_addr_sq_ft', 0),
+                    key="new_service_sq_ft"
+                )
+            
             submitted = st.form_submit_button("Save Account")
         
         if submitted:
@@ -428,6 +569,23 @@ class ServiceScheduler:
             self.form_data.customer_data['billing_city'] = billing_city
             self.form_data.customer_data['billing_state'] = billing_state
             self.form_data.customer_data['billing_zip'] = billing_zip
+            
+            # Update use_billing_as_service flag in form data
+            self.form_data.customer_data['use_billing_as_service'] = use_billing_as_service
+            
+            # Set service address from billing if needed
+            if use_billing_as_service:
+                self.form_data.customer_data['service_address'] = billing_address
+                self.form_data.customer_data['service_city'] = billing_city
+                self.form_data.customer_data['service_state'] = billing_state
+                self.form_data.customer_data['service_zip'] = billing_zip
+                self.form_data.customer_data['service_addr_sq_ft'] = 0
+            else:
+                self.form_data.customer_data['service_address'] = service_address
+                self.form_data.customer_data['service_city'] = service_city
+                self.form_data.customer_data['service_state'] = service_state
+                self.form_data.customer_data['service_zip'] = service_zip
+                self.form_data.customer_data['service_addr_sq_ft'] = service_addr_sq_ft
 
             # Create account data dictionary with correct field names for account.py
             account_data = {
@@ -449,18 +607,32 @@ class ServiceScheduler:
                 for error in validation_errors:
                     st.error(error)
                 debug_print(f"Validation errors: {validation_errors}")
-            else:
-                # Direct call to account.py save_account function
-                from models.account import save_account
-                account_id = save_account(account_data)
+                return
+            
+            # Direct call to account.py save_account function
+            from models.account import save_account, save_account_service_address
+            account_id = save_account(account_data)
+            
+            if account_id:
+                self.form_data.customer_data['account_id'] = account_id
+                self.form_data.customer_data['is_commercial'] = True
                 
-                if account_id:
-                    self.form_data.customer_data['account_id'] = account_id
-                    self.form_data.customer_data['is_commercial'] = True
+                # Save service address for the account
+                service_address_id = save_account_service_address(
+                    account_id=account_id,
+                    data=self.form_data.customer_data,
+                    is_primary=True
+                )
+                
+                if service_address_id:
+                    self.form_data.customer_data['service_address_id'] = service_address_id
                     st.success(f"Account created successfully with ID: {account_id}")
-                    st.rerun()  # Refresh the page to show updated state
                 else:
-                    st.error("Failed to create account. Please check the logs for errors.")
+                    st.warning("Account created but failed to save service address.")
+                    
+                st.rerun()  # Refresh the page to show updated state
+            else:
+                st.error("Failed to create account. Please check the logs for errors.")
 
 
 

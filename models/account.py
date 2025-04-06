@@ -306,6 +306,94 @@ def search_accounts(search_term: str) -> pd.DataFrame:
         return df
     return pd.DataFrame()
 
+def save_account_service_address(account_id: int, data: Dict[str, Any], is_primary: bool = True) -> Optional[int]:
+    """Save account service address to the SERVICE_ADDRESSES table
+    
+    Args:
+        account_id: ID of the account to associate with the address
+        data: Dictionary containing service address details
+        is_primary: Whether this is the primary service address
+        
+    Returns:
+        Optional[int]: The address ID if successful, None if failed
+    """
+    try:
+        snowflake_conn = SnowflakeConnection.get_instance()
+        
+        # Clean and validate data
+        service_zip = sanitize_zip_code(data.get('service_zip'))
+        if data.get('service_zip') and not service_zip:
+            st.error("Invalid service ZIP code format. Please enter a 5-digit number.")
+            return None
+            
+        # Check if address already exists for this account
+        check_query = """
+        SELECT ADDRESS_ID FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
+        WHERE ACCOUNT_ID = ? AND IS_PRIMARY_SERVICE = TRUE
+        """
+        existing = snowflake_conn.execute_query(check_query, [account_id])
+        
+        if existing:
+            # Update existing address
+            address_id = existing[0]['ADDRESS_ID']
+            query = """
+            UPDATE OPERATIONAL.CARPET.SERVICE_ADDRESSES SET
+                STREET_ADDRESS = ?,
+                CITY = ?,
+                STATE = ?,
+                ZIP_CODE = ?,
+                SQUARE_FOOTAGE = ?,
+                IS_PRIMARY_SERVICE = ?,
+                LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+            WHERE ADDRESS_ID = ?
+            """
+            params = [
+                str(data.get('service_address', '')),
+                str(data.get('service_city', '')),
+                str(data.get('service_state', '')),
+                service_zip,
+                int(data.get('service_addr_sq_ft', 0) or 0),
+                is_primary,
+                address_id
+            ]
+            snowflake_conn.execute_query(query, params)
+            return address_id
+            
+        else:
+            # Insert new service address
+            query = """
+            INSERT INTO OPERATIONAL.CARPET.SERVICE_ADDRESSES (
+                ACCOUNT_ID,
+                STREET_ADDRESS,
+                CITY,
+                STATE,
+                ZIP_CODE,
+                SQUARE_FOOTAGE,
+                IS_PRIMARY_SERVICE,
+                CREATED_AT,
+                LAST_MODIFIED_DATE
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+            RETURNING ADDRESS_ID
+            """
+            params = [
+                account_id,
+                str(data.get('service_address', '')),
+                str(data.get('service_city', '')),
+                str(data.get('service_state', '')),
+                service_zip,
+                int(data.get('service_addr_sq_ft', 0) or 0),
+                is_primary
+            ]
+            result = snowflake_conn.execute_query(query, params)
+            return result[0]['ADDRESS_ID'] if result else None
+            
+    except Exception as e:
+        st.error(f"Error saving service address: {str(e)}")
+        print(f"DEBUG: Error saving service address: {str(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return None
+
 def fetch_account(account_id: int) -> Optional[Dict[str, Any]]:
     """Fetch account details by ID."""
     query = """
