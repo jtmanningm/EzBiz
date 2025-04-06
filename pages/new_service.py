@@ -342,22 +342,25 @@ class ServiceScheduler:
         )
         col1, col2 = st.columns(2)
         with col1:
-            self.form_data.customer_data['city'] = st.text_input(
+            self.form_data.customer_data['billing_city'] = st.text_input(
                 "City",
                 value=account.get('CITY', ''),
                 key="edit_city"
             )
         with col2:
-            self.form_data.customer_data['state'] = st.text_input(
+            self.form_data.customer_data['billing_state'] = st.text_input(
                 "State",
                 value=account.get('STATE', ''),
                 key="edit_state"
             )
-        self.form_data.customer_data['zip_code'] = st.text_input(
+        self.form_data.customer_data['billing_zip'] = st.text_input(
             "ZIP Code",
             value=account.get('ZIP_CODE', ''),
             key="edit_zip_code"
         )
+        # Save account ID to form data
+        self.form_data.customer_data['account_id'] = account.get('ACCOUNT_ID')
+        self.form_data.customer_data['is_commercial'] = True
         debug_print("Displayed account details in display_account_details")
 
 
@@ -396,36 +399,37 @@ class ServiceScheduler:
             )
             col1, col2 = st.columns(2)
             with col1:
-                city = st.text_input(
+                billing_city = st.text_input(
                     "City",
-                    value=self.form_data.customer_data.get('city', ''),
+                    value=self.form_data.customer_data.get('billing_city', ''),
                     key="new_city"
                 )
             with col2:
-                state = st.text_input(
+                billing_state = st.text_input(
                     "State",
-                    value=self.form_data.customer_data.get('state', ''),
+                    value=self.form_data.customer_data.get('billing_state', ''),
                     key="new_state"
                 )
-            zip_code = st.text_input(
+            billing_zip = st.text_input(
                 "ZIP Code",
-                value=self.form_data.customer_data.get('zip_code', ''),
+                value=self.form_data.customer_data.get('billing_zip', ''),
                 key="new_zip_code"
             )
             
             submitted = st.form_submit_button("Save Account")
         
         if submitted:
-            # Immediately update session state
+            # Immediately update session state with billing-specific field names
             self.form_data.customer_data['business_name'] = business_name
             self.form_data.customer_data['contact_person'] = contact_person
             self.form_data.customer_data['phone_number'] = phone_number
             self.form_data.customer_data['email_address'] = email_address
             self.form_data.customer_data['billing_address'] = billing_address
-            self.form_data.customer_data['city'] = city
-            self.form_data.customer_data['state'] = state
-            self.form_data.customer_data['zip_code'] = zip_code
+            self.form_data.customer_data['billing_city'] = billing_city
+            self.form_data.customer_data['billing_state'] = billing_state
+            self.form_data.customer_data['billing_zip'] = billing_zip
 
+            # Create account data dictionary with correct field names for account.py
             account_data = {
                 'account_name': business_name,
                 'account_type': 'Commercial',
@@ -433,25 +437,28 @@ class ServiceScheduler:
                 'contact_email': email_address,
                 'contact_phone': phone_number,
                 'billing_address': billing_address,
-                'city': city,
-                'state': state,
-                'zip_code': zip_code,
+                'city': billing_city,     # Using billing_city field
+                'state': billing_state,   # Using billing_state field
+                'zip_code': billing_zip,  # Using billing_zip field
                 'active_flag': True
             }
-            st.write("Account data to be saved:", account_data)
+            debug_print(f"Account data to be saved: {account_data}")
             
             validation_errors = validate_account_data(account_data)
             if validation_errors:
                 for error in validation_errors:
                     st.error(error)
-                st.write("Validation failed, please correct the errors and try again.")
+                debug_print(f"Validation errors: {validation_errors}")
             else:
+                # Direct call to account.py save_account function
+                from models.account import save_account
                 account_id = save_account(account_data)
+                
                 if account_id:
                     self.form_data.customer_data['account_id'] = account_id
                     self.form_data.customer_data['is_commercial'] = True
                     st.success(f"Account created successfully with ID: {account_id}")
-                    # Optionally, you might call st.experimental_rerun() here if you need to update the page
+                    st.rerun()  # Refresh the page to show updated state
                 else:
                     st.error("Failed to create account. Please check the logs for errors.")
 
@@ -603,6 +610,9 @@ class ServiceScheduler:
             # Log all form data for debugging
             print("DEBUG: All customer data keys:", self.form_data.customer_data.keys())
             
+            # Directly import the save_account function to avoid any potential import issues
+            from models.account import save_account
+            
             account_data = {
                 'account_name': self.form_data.customer_data.get('business_name', ''),
                 'account_type': 'Commercial',
@@ -610,13 +620,21 @@ class ServiceScheduler:
                 'contact_email': self.form_data.customer_data.get('email_address', ''),
                 'contact_phone': self.form_data.customer_data.get('phone_number', ''),
                 'billing_address': self.form_data.customer_data.get('billing_address', ''),
-                'city': self.form_data.customer_data.get('billing_city', ''),
-                'state': self.form_data.customer_data.get('billing_state', ''),
-                'zip_code': self.form_data.customer_data.get('billing_zip', ''),
+                'city': self.form_data.customer_data.get('billing_city', ''),  # Using billing_city
+                'state': self.form_data.customer_data.get('billing_state', ''), # Using billing_state
+                'zip_code': self.form_data.customer_data.get('billing_zip', ''), # Using billing_zip
                 'active_flag': True
             }
+            
+            # Log the data that will be saved
+            print("DEBUG: Final account data to be saved:")
+            for key, value in account_data.items():
+                print(f"  {key}: {value}")
+            
             debug_print(f"Prepared account data in save_account_and_get_id: {account_data}")
 
+            # Validate the data
+            from models.account import validate_account_data
             validation_errors = validate_account_data(account_data)
             if validation_errors:
                 for error in validation_errors:
@@ -624,19 +642,28 @@ class ServiceScheduler:
                 debug_print(f"Validation errors: {validation_errors}")
                 return None
 
-            debug_print(f"Calling save_account with account_id: {self.form_data.customer_data.get('account_id')}")
-            account_id = save_account(
-                account_data,
-                self.form_data.customer_data.get('account_id')
-            )
+            # Get the account_id if we're updating an existing account
+            account_id = self.form_data.customer_data.get('account_id')
+            debug_print(f"Calling save_account with account_id: {account_id}")
             
-            if not account_id:
+            # Call save_account with the data
+            saved_account_id = save_account(account_data, account_id)
+            
+            if not saved_account_id:
                 st.error("Failed to save account information")
                 debug_print("save_account returned None")
                 return None
                     
-            debug_print(f"Account saved with ID: {account_id}")
-            return account_id
+            debug_print(f"Account saved with ID: {saved_account_id}")
+            
+            # Display a success message
+            st.success(f"Account {'updated' if account_id else 'created'} successfully!")
+            
+            # Update the form data with the new account ID
+            self.form_data.customer_data['account_id'] = saved_account_id
+            self.form_data.customer_data['is_commercial'] = True
+            
+            return saved_account_id
 
         except KeyError as e:
             st.error(f"Missing required field: {str(e)}")
