@@ -600,16 +600,19 @@ class ServiceScheduler:
             debug_print("Starting save_account_and_get_id")
             debug_print(f"Form data customer data: {self.form_data.customer_data}")
 
+            # Log all form data for debugging
+            print("DEBUG: All customer data keys:", self.form_data.customer_data.keys())
+            
             account_data = {
-                'account_name': self.form_data.customer_data['business_name'],
+                'account_name': self.form_data.customer_data.get('business_name', ''),
                 'account_type': 'Commercial',
-                'contact_person': self.form_data.customer_data['contact_person'],
-                'contact_email': self.form_data.customer_data['email_address'],
-                'contact_phone': self.form_data.customer_data['phone_number'],
-                'billing_address': self.form_data.customer_data['billing_address'],
-                'city': self.form_data.customer_data['billing_city'],
-                'state': self.form_data.customer_data['billing_state'],
-                'zip_code': self.form_data.customer_data['billing_zip'],
+                'contact_person': self.form_data.customer_data.get('contact_person', ''),
+                'contact_email': self.form_data.customer_data.get('email_address', ''),
+                'contact_phone': self.form_data.customer_data.get('phone_number', ''),
+                'billing_address': self.form_data.customer_data.get('billing_address', ''),
+                'city': self.form_data.customer_data.get('billing_city', ''),
+                'state': self.form_data.customer_data.get('billing_state', ''),
+                'zip_code': self.form_data.customer_data.get('billing_zip', ''),
                 'active_flag': True
             }
             debug_print(f"Prepared account data in save_account_and_get_id: {account_data}")

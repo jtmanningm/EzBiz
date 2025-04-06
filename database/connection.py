@@ -78,12 +78,23 @@ class SnowflakeConnection:
         """
         try:
             if not self.session:
-                raise Exception("No database session available")
+                print("DEBUG: No database session available")
+                self.session = self._create_session()
+                if not self.session:
+                    raise Exception("Failed to create database session")
+                    
+            # Print query and params for debugging
+            print(f"DEBUG: Executing query: {query}")
+            print(f"DEBUG: With parameters: {params}")
                 
             result = self.session.sql(query, params).collect() if params else \
                      self.session.sql(query).collect()
+            print(f"DEBUG: Query result: {result}")
             return result
         except Exception as e:
+            print(f"DEBUG: Database error: {str(e)}")
+            import traceback
+            print(f"DEBUG: Database error traceback: {traceback.format_exc()}")
             st.error(f"{error_msg}: {str(e)}")
             return None
 
