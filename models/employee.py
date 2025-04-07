@@ -71,6 +71,40 @@ def fetch_all_employees() -> pd.DataFrame:
         return df
     return pd.DataFrame()
 
+def fetch_employees():
+    """Fetch list of employees from database"""
+    conn = SnowflakeConnection.get_instance()
+    query = """
+    SELECT 
+        EMPLOYEE_ID,
+        FIRST_NAME || ' ' || LAST_NAME as FULL_NAME
+    FROM OPERATIONAL.CARPET.EMPLOYEE
+    ORDER BY FULL_NAME
+    """
+    results = conn.execute_query(query)
+    return pd.DataFrame(results, columns=['EMPLOYEE_ID', 'FULL_NAME'])
+
+def get_employee_by_name(full_name):
+    """Get employee ID from full name"""
+    employees_df = fetch_employees()
+    employee = employees_df[employees_df['FULL_NAME'] == full_name]
+    return employee.iloc[0]['EMPLOYEE_ID'] if not employee.empty else None
+
+def get_employee_rate(employee_name):
+    """Fetch employee's hourly wage from database"""
+    conn = SnowflakeConnection.get_instance()
+    query = """
+    SELECT HOURLY_WAGE, SALARY
+    FROM OPERATIONAL.CARPET.EMPLOYEE
+    WHERE FIRST_NAME || ' ' || LAST_NAME = ?
+    """
+    results = conn.execute_query(query, [employee_name])
+    if results:
+        hourly_wage = results[0][0]  # Use hourly_wage if available
+        salary = results[0][1]       # Use salary as backup
+        return hourly_wage if hourly_wage is not None else (salary / 2080) if salary is not None else 0.0
+    return 0.0
+
 def save_employee(data: Dict[str, Any]) -> Optional[int]:
     """Save new employee or update existing"""
     try:

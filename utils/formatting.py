@@ -1,5 +1,6 @@
 from datetime import datetime, date, time
 from typing import Union, Optional
+import streamlit as st
 
 def format_currency(amount: float) -> str:
     """Format amount as currency"""
@@ -9,8 +10,9 @@ def format_date(date_value: date) -> str:
     """Format date for display"""
     return date_value.strftime("%A, %B %d, %Y")
 
-def format_time(time_value: time) -> str:
-    """Format time for display"""
+def format_time(time_value):
+    if time_value is None:
+        return "Unknown Time"  # Or any default value you'd like
     return time_value.strftime("%I:%M %p")
 
 def format_phone(phone: str) -> str:
@@ -20,6 +22,21 @@ def format_phone(phone: str) -> str:
     if len(cleaned) == 10:
         return f"({cleaned[:3]}) {cleaned[3:6]}-{cleaned[6:]}"
     return phone
+
+def add_back_navigation():
+    """Display back navigation button"""
+    # Use _ to indicate we're intentionally not using the second column
+    col1, _ = st.columns([1, 10])
+    with col1:
+        if st.button("← Home"):
+            # Reset both page and settings states
+            if 'show_settings' in st.session_state:
+                st.session_state.show_settings = False
+            if 'settings_page' in st.session_state:
+                st.session_state.settings_page = 'business'  # Reset to default settings page
+            st.session_state.page = None  # Reset to main menu
+            st.rerun()
+    st.markdown("---")
 
 def format_receipt(data: dict) -> str:
     """Format receipt for printing/display"""

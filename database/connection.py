@@ -27,13 +27,13 @@ class SnowflakeConnection:
         try:
             private_key = self._load_private_key()
             connection_parameters = {
-                "account": "uvfnphy-okb79182",
-                "user": "JTMANNINGM",
+                "account": st.secrets.get("snowflake", {}).get("account", ""),
+                "user": st.secrets.get("snowflake", {}).get("user", ""),
                 "private_key": private_key,
-                "role": "ACCOUNTADMIN",
-                "warehouse": "COMPUTE_WH",
-                "database": "OPERATIONAL",
-                "schema": "CARPET"
+                "role": st.secrets.get("snowflake", {}).get("role", "ACCOUNTADMIN"),
+                "warehouse": st.secrets.get("snowflake", {}).get("warehouse", "COMPUTE_WH"),
+                "database": st.secrets.get("snowflake", {}).get("database", "OPERATIONAL"),
+                "schema": st.secrets.get("snowflake", {}).get("schema", "CARPET")
             }
             return Session.builder.configs(connection_parameters).create()
         except Exception as e:
@@ -42,14 +42,14 @@ class SnowflakeConnection:
 
     def _load_private_key(self) -> bytes:
         """Load private key for authentication"""
-        PRIVATE_KEY_PATH = os.path.expanduser('~/Documents/Key/rsa_key.p8')
-        PRIVATE_KEY_PASSPHRASE = 'Lizard24'
+        PRIVATE_KEY_PATH = os.path.expanduser(st.secrets.get("snowflake", {}).get("private_key_path", ''))
+        PRIVATE_KEY_PASSPHRASE = st.secrets.get("snowflake", {}).get("private_key_passphrase", '')
         
         try:
             with open(PRIVATE_KEY_PATH, 'rb') as key_file:
                 private_key = serialization.load_pem_private_key(
                     key_file.read(),
-                    password=PRIVATE_KEY_PASSPHRASE.encode(),
+                    password=PRIVATE_KEY_PASSPHRASE.encode() if PRIVATE_KEY_PASSPHRASE else None,
                     backend=default_backend()
                 )
             return private_key.private_bytes(
