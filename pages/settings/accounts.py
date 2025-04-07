@@ -275,7 +275,8 @@ def display_account_details(account: Dict[str, Any]) -> None:
         use_billing_as_service = st.checkbox(
             "Same as Billing Address", 
             value=use_billing_as_service,
-            key=f"edit_use_billing_as_service_{account_id}"
+            key=f"edit_use_billing_as_service_{account_id}",
+            on_change=lambda: st.experimental_rerun()
         )
         
         # Debug to check checkbox state
@@ -407,7 +408,8 @@ def display_account_form() -> None:
         use_billing_as_service = st.checkbox(
             "Same as Billing Address", 
             value=True,
-            key="use_billing_as_service"
+            key="use_billing_as_service",
+            on_change=lambda: st.experimental_rerun()
         )
         
         # Debug to show checkbox state
