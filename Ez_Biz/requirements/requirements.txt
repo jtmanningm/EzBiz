@@ -1,5 +1,0 @@
-streamlit
-pandas
-snowflake-snowpark-python
-cryptography
-python-dateutil
