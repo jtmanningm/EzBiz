@@ -318,10 +318,20 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
         Optional[int]: The address ID if successful, None if failed
     """
     try:
-        snowflake_conn = SnowflakeConnection.get_instance()
+        print(f"DEBUG: save_account_service_address called with account_id: {account_id}")
+        print(f"DEBUG: data: {data}")
+        print(f"DEBUG: is_primary: {is_primary}")
         
+        snowflake_conn = SnowflakeConnection.get_instance()
+        if not snowflake_conn:
+            print("DEBUG: Failed to get database connection")
+            st.error("Database connection failed")
+            return None
+            
         # Clean and validate data
         service_zip = sanitize_zip_code(data.get('service_zip'))
+        print(f"DEBUG: Original zip_code: {data.get('service_zip')}, sanitized: {service_zip}")
+        
         if data.get('service_zip') and not service_zip:
             st.error("Invalid service ZIP code format. Please enter a 5-digit number.")
             return None
@@ -331,11 +341,19 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
         SELECT ADDRESS_ID FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
         WHERE ACCOUNT_ID = ? AND IS_PRIMARY_SERVICE = TRUE
         """
-        existing = snowflake_conn.execute_query(check_query, [account_id])
+        try:
+            existing = snowflake_conn.execute_query(check_query, [account_id])
+            print(f"DEBUG: Check for existing address result: {existing}")
+        except Exception as e:
+            print(f"DEBUG: Error checking for existing address: {str(e)}")
+            # Continue with insert if we can't check for existing
+            existing = None
         
         if existing:
             # Update existing address
             address_id = existing[0]['ADDRESS_ID']
+            print(f"DEBUG: Updating existing service address ID: {address_id}")
+            
             query = """
             UPDATE OPERATIONAL.CARPET.SERVICE_ADDRESSES SET
                 STREET_ADDRESS = ?,
@@ -344,7 +362,7 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
                 ZIP_CODE = ?,
                 SQUARE_FOOTAGE = ?,
                 IS_PRIMARY_SERVICE = ?,
-                LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+                LAST_UPDATED_AT = CURRENT_TIMESTAMP()
             WHERE ADDRESS_ID = ?
             """
             params = [
@@ -356,13 +374,26 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
                 is_primary,
                 address_id
             ]
-            snowflake_conn.execute_query(query, params)
-            return address_id
+            
+            print(f"DEBUG: Update query: {query}")
+            print(f"DEBUG: Update params: {params}")
+            
+            try:
+                snowflake_conn.execute_query(query, params)
+                print(f"DEBUG: Address update successful")
+                return address_id
+            except Exception as e:
+                print(f"DEBUG: Error updating service address: {str(e)}")
+                st.error(f"Error updating service address: {str(e)}")
+                return None
             
         else:
             # Insert new service address
+            print(f"DEBUG: Inserting new service address for account: {account_id}")
+            
             query = """
             INSERT INTO OPERATIONAL.CARPET.SERVICE_ADDRESSES (
+                CUSTOMER_ID,
                 ACCOUNT_ID,
                 STREET_ADDRESS,
                 CITY,
@@ -371,8 +402,8 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
                 SQUARE_FOOTAGE,
                 IS_PRIMARY_SERVICE,
                 CREATED_AT,
-                LAST_MODIFIED_DATE
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+                LAST_UPDATED_AT
+            ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
             RETURNING ADDRESS_ID
             """
             params = [
@@ -384,8 +415,24 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
                 int(data.get('service_addr_sq_ft', 0) or 0),
                 is_primary
             ]
-            result = snowflake_conn.execute_query(query, params)
-            return result[0]['ADDRESS_ID'] if result else None
+            
+            print(f"DEBUG: Insert query: {query}")
+            print(f"DEBUG: Insert params: {params}")
+            
+            try:
+                result = snowflake_conn.execute_query(query, params)
+                print(f"DEBUG: Insert result: {result}")
+                if result and len(result) > 0:
+                    address_id = result[0]['ADDRESS_ID']
+                    print(f"DEBUG: New service address created with ID: {address_id}")
+                    return address_id
+                else:
+                    print("DEBUG: Insert did not return an ADDRESS_ID")
+                    return None
+            except Exception as e:
+                print(f"DEBUG: Error inserting service address: {str(e)}")
+                st.error(f"Error creating service address: {str(e)}")
+                return None
             
     except Exception as e:
         st.error(f"Error saving service address: {str(e)}")
