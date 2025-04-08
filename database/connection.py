@@ -42,24 +42,46 @@ class SnowflakeConnection:
 
     def _load_private_key(self) -> bytes:
         """Load private key for authentication"""
-        PRIVATE_KEY_PATH = os.path.expanduser(st.secrets.get("snowflake", {}).get("private_key_path", ''))
-        PRIVATE_KEY_PASSPHRASE = st.secrets.get("snowflake", {}).get("private_key_passphrase", '')
-        
-        try:
-            with open(PRIVATE_KEY_PATH, 'rb') as key_file:
+        # Check if in cloud environment (detect by checking if private_key is in secrets directly)
+        if st.secrets.get("snowflake", {}).get("private_key"):
+            # Use the private key directly from secrets
+            PRIVATE_KEY_DATA = st.secrets.get("snowflake", {}).get("private_key", '')
+            PRIVATE_KEY_PASSPHRASE = st.secrets.get("snowflake", {}).get("private_key_passphrase", '')
+            
+            try:
                 private_key = serialization.load_pem_private_key(
-                    key_file.read(),
+                    PRIVATE_KEY_DATA.encode(),
                     password=PRIVATE_KEY_PASSPHRASE.encode() if PRIVATE_KEY_PASSPHRASE else None,
                     backend=default_backend()
                 )
-            return private_key.private_bytes(
-                encoding=serialization.Encoding.DER,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            )
-        except Exception as e:
-            st.error(f"Error loading private key: {e}")
-            raise
+                return private_key.private_bytes(
+                    encoding=serialization.Encoding.DER,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
+            except Exception as e:
+                st.error(f"Error loading private key from secrets: {e}")
+                raise
+        else:
+            # Local development - load from file
+            PRIVATE_KEY_PATH = os.path.expanduser(st.secrets.get("snowflake", {}).get("private_key_path", ''))
+            PRIVATE_KEY_PASSPHRASE = st.secrets.get("snowflake", {}).get("private_key_passphrase", '')
+            
+            try:
+                with open(PRIVATE_KEY_PATH, 'rb') as key_file:
+                    private_key = serialization.load_pem_private_key(
+                        key_file.read(),
+                        password=PRIVATE_KEY_PASSPHRASE.encode() if PRIVATE_KEY_PASSPHRASE else None,
+                        backend=default_backend()
+                    )
+                return private_key.private_bytes(
+                    encoding=serialization.Encoding.DER,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
+            except Exception as e:
+                st.error(f"Error loading private key from file: {e}")
+                raise
 
     def execute_query(self, 
                      query: str, 

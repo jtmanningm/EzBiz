@@ -11,20 +11,25 @@ This guide explains how to deploy the Ez Biz application to Streamlit Cloud.
 
 - ✅ Moved all credentials to `.streamlit/secrets.toml`
 - ✅ Added `.streamlit/secrets.toml` to `.gitignore`
-- ✅ Created requirements.txt with all dependencies
+- ✅ Created requirements.txt with all dependencies in root folder
+- ✅ Added packages.txt for system dependencies
+- ✅ Modified code to handle private key in cloud environment
 
 ## Remaining Deployment Steps
 
 ### 1. Update and Push Your Code to GitHub
 
 ```bash
+# Fix authentication for GitHub if needed
+git remote set-url origin https://github.com/jtmanningm/Ez-Biz.git
+
 # Add all your changes and untracked files
 git add .
 
 # Commit changes
 git commit -m "Prepare for deployment"
 
-# Push to GitHub
+# Push to GitHub (you'll be prompted for your username and password/token)
 git push -u origin main
 ```
 
@@ -37,24 +42,51 @@ git push -u origin main
    - Main file path: main.py
    - Python version: 3.9 (recommended)
    - Advanced settings:
-     - Package dependencies: requirements/requirements.txt
+     - Package dependencies: requirements.txt (use the root one, not in requirements/ folder)
 
 ### 3. Configure Secrets in Streamlit Cloud
 
-After deploying, add your secrets to Streamlit Cloud:
+After deploying, add your secrets to Streamlit Cloud with these adjustments:
 
 1. Go to your app in Streamlit Cloud
 2. Navigate to "Settings" > "Secrets"
-3. Copy the contents of your local `.streamlit/secrets.toml` file
-4. Paste into the secrets manager in Streamlit Cloud
-5. Save the secrets
+3. Copy the modified contents below (with private key directly in secrets):
 
-IMPORTANT: Make sure to update any API keys before pasting into Streamlit Cloud!
+```toml
+# Snowflake credentials
+[snowflake]
+account = "uvfnphy-okb79182"
+user = "JTMANNINGM"
+role = "ACCOUNTADMIN" 
+warehouse = "COMPUTE_WH"
+database = "OPERATIONAL"
+schema = "CARPET"
+# Instead of file path, add the actual private key content here
+private_key = """-----BEGIN PRIVATE KEY-----
+YOUR_ACTUAL_KEY_CONTENT_HERE
+-----END PRIVATE KEY-----"""
+private_key_passphrase = "Lizard24"
+
+# Mailgun credentials
+[mailgun]
+api_key = "YOUR_ACTUAL_API_KEY_HERE"
+domain = "joinezbiz.com"
+test_domain = "sandbox16a2d63b058f4bbc914143c47438384a.mailgun.org"
+```
+
+4. Save the secrets
+
+## Important Notes
+
+- For the private key, you need to copy the actual content of your p8 file into the secrets
+- To view your key content, run: `cat ~/Documents/Key/rsa_key.p8`
+- Make sure to add your actual Mailgun API key
 
 ## Debugging the Deployed App
 
 - Check the logs in your Streamlit Cloud dashboard under the app's "Manage app" section
-- Remove debugging code (like debugpy) before final deployment
+- If you see errors related to Snowflake, check that your private key is correctly formatted
+- Remove debugging code (debugpy is already commented out)
 
 ## Security Reminders
 
