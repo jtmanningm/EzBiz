@@ -1,4 +1,13 @@
 import streamlit as st
+
+# Set page configuration must be the first Streamlit command
+st.set_page_config(
+    page_title="EZ Biz",
+    page_icon="💼",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 from datetime import datetime
 import sys
 import os
@@ -50,44 +59,6 @@ from utils.auth.middleware import (
 from utils.business.business_auth import verify_business_session
 
 print(f"Streamlit imported as: {st}")
-
-# Debugger code - commented out for production deployment
-# To re-enable debugging in development, uncomment this section
-'''
-import debugpy
-import streamlit as st
-import time
-
-# Prevent multiple calls by checking if debugging is already active
-if "debugger_active" not in st.session_state:
-    st.session_state.debugger_active = True  # Set flag to prevent re-listening
-
-    debugpy.listen(("localhost", 5678))  # Listen for debugger
-    print("✅ Debugger is active. Waiting for VS Code to attach...")
-
-    # Set a timeout (e.g., 10 seconds) to avoid blocking
-    timeout = 10
-    start_time = time.time()
-
-    while not debugpy.is_client_connected():
-        if time.time() - start_time > timeout:
-            print("⚠️ Debugger did not attach within timeout. Continuing execution.")
-            break
-        time.sleep(0.5)
-
-    if debugpy.is_client_connected():
-        debugpy.wait_for_client()  # Only wait if a client has connected
-        print("✅ Debugger attached! Execution will now continue.")
-'''
-
-
-# Set page configuration
-st.set_page_config(
-    page_title="EZ Biz",
-    page_icon="💼",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 def get_business_name() -> str:
     """Fetch business name from database"""
