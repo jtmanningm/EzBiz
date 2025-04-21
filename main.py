@@ -58,7 +58,6 @@ from utils.auth.middleware import (
 
 from utils.business.business_auth import verify_business_session
 
-print(f"Streamlit imported as: {st}")
 
 def get_business_name() -> str:
     """Fetch business name from database"""
