@@ -309,6 +309,18 @@ def save_service_schedule(
         
         # Execute transaction insert
         snowflake_conn.execute_query(query, params)
+        
+        # Get the newly created transaction ID
+        transaction_id_query = """
+        SELECT ID FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION 
+        WHERE CUSTOMER_ID = ? AND SERVICE_DATE = ? AND START_TIME = ?
+        ORDER BY CREATED_AT DESC 
+        LIMIT 1
+        """
+        transaction_result = snowflake_conn.execute_query(transaction_id_query, [
+            safe_customer_id, service_date, service_time
+        ])
+        transaction_id = transaction_result[0]['ID'] if transaction_result else None
 
         # Schedule recurring services if needed
         if is_recurring and recurrence_pattern:
@@ -403,7 +415,7 @@ def save_service_schedule(
                 debug_print(f"Error preparing email data: {str(e)}")
                 st.warning("Unable to send confirmation email, but service was scheduled successfully.")
 
-        return True
+        return transaction_id
 
     except Exception as e:
         st.error(f"Error saving service schedule: {str(e)}")

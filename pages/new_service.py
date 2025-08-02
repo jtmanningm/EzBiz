@@ -1354,7 +1354,7 @@ class ServiceScheduler:
             }
 
             # Save service schedule
-            service_scheduled = save_service_schedule(
+            transaction_id = save_service_schedule(
                 customer_id=service_data['customer_id'],
                 account_id=service_data['account_id'],
                 services=self.form_data.service_selection['selected_services'],
@@ -1366,9 +1366,24 @@ class ServiceScheduler:
                 recurrence_pattern=service_data['recurrence_pattern'],
                 customer_data=self.form_data.customer_data
             )
-            if not service_scheduled:
+            if not transaction_id:
                 st.error("Failed to schedule service")
                 return False
+            
+            # Set transaction in session state for transaction details page
+            st.session_state['selected_service'] = {
+                'ID': transaction_id,
+                'TRANSACTION_ID': transaction_id,
+                'CUSTOMER_ID': service_data['customer_id'],
+                'ACCOUNT_ID': service_data['account_id'],
+                'SERVICE_NAME': ', '.join(self.form_data.service_selection['selected_services']),
+                'SERVICE_DATE': service_data['service_date'],
+                'START_TIME': service_data['service_time'],
+                'DEPOSIT': service_data['deposit'],
+                'NOTES': service_data['notes'],
+                'IS_RECURRING': service_data['is_recurring'],
+                'RECURRENCE_PATTERN': service_data['recurrence_pattern']
+            }
 
             success_message = [
                 "Service scheduled successfully!",
@@ -1754,7 +1769,9 @@ def new_service_page():
                         with col2:
                             if st.button("📋 Schedule Service", type="primary", use_container_width=True):
                                 if scheduler.save_service():
-                                    st.success("Service scheduled successfully!")
+                                    st.success("Service scheduled successfully! Redirecting to transaction details...")
+                                    # Redirect to transaction details page
+                                    st.session_state.page = "transaction_details"
                                     st.rerun()
                     else:
                         st.info("Please select services first to see available time slots.")
