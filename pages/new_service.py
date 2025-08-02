@@ -656,31 +656,41 @@ class ServiceScheduler:
         st.markdown("### Customer Information")
         col1, col2 = st.columns(2)
         with col1:
-            first_name = st.text_input(
+            st.text_input(
                 "First Name",
                 value=self.form_data.customer_data.get('first_name', ''),
                 key="new_first_name"
             )
-            self.form_data.customer_data['first_name'] = first_name
-            last_name = st.text_input(
+            # Auto-sync from session state
+            if "new_first_name" in st.session_state:
+                self.form_data.customer_data['first_name'] = st.session_state["new_first_name"]
+            
+            st.text_input(
                 "Last Name",
                 value=self.form_data.customer_data.get('last_name', ''),
                 key="new_last_name"
             )
-            self.form_data.customer_data['last_name'] = last_name
+            # Auto-sync from session state
+            if "new_last_name" in st.session_state:
+                self.form_data.customer_data['last_name'] = st.session_state["new_last_name"]
         with col2:
-            phone_number = st.text_input(
+            st.text_input(
                 "Phone Number",
                 value=self.form_data.customer_data.get('phone_number', ''),
                 key="new_phone"
             )
-            self.form_data.customer_data['phone_number'] = phone_number
-            email_address = st.text_input(
+            # Auto-sync from session state
+            if "new_phone" in st.session_state:
+                self.form_data.customer_data['phone_number'] = st.session_state["new_phone"]
+                
+            st.text_input(
                 "Email",
                 value=self.form_data.customer_data.get('email_address', ''),
                 key="new_email"
             )
-            self.form_data.customer_data['email_address'] = email_address
+            # Auto-sync from session state
+            if "new_email" in st.session_state:
+                self.form_data.customer_data['email_address'] = st.session_state["new_email"]
 
         col1, col2 = st.columns(2)
         with col1:
@@ -690,57 +700,76 @@ class ServiceScheduler:
                 method_index = contact_methods.index(current_method)
             except ValueError:
                 method_index = 0
-            primary_contact_method = st.selectbox(
+            st.selectbox(
                 "Preferred Contact Method",
                 contact_methods,
                 index=method_index,
                 key="new_contact_method"
             )
-            self.form_data.customer_data['primary_contact_method'] = primary_contact_method
+            # Auto-sync from session state
+            if "new_contact_method" in st.session_state:
+                self.form_data.customer_data['primary_contact_method'] = st.session_state["new_contact_method"]
         with col2:
-            text_flag = st.checkbox(
+            st.checkbox(
                 "Opt-in to Text Messages",
                 value=self.form_data.customer_data.get('text_flag', False),
                 key="new_text_flag"
             )
-            self.form_data.customer_data['text_flag'] = text_flag
+            # Auto-sync from session state
+            if "new_text_flag" in st.session_state:
+                self.form_data.customer_data['text_flag'] = st.session_state["new_text_flag"]
 
         # Billing Address Option
-        different_billing = st.checkbox(
+        st.checkbox(
             "Billing address is different from service address",
             value=self.form_data.customer_data.get('different_billing', False),
             key="different_billing_checkbox"
         )
-        self.form_data.customer_data['different_billing'] = different_billing
+        # Auto-sync from session state
+        if "different_billing_checkbox" in st.session_state:
+            self.form_data.customer_data['different_billing'] = st.session_state["different_billing_checkbox"]
+        
+        different_billing = self.form_data.customer_data.get('different_billing', False)
         if different_billing:
             st.markdown("### Billing Address")
-            billing_address = st.text_input(
+            st.text_input(
                 "Street Address",
                 value=self.form_data.customer_data.get('billing_address', ''),
                 key="billing_street"
             )
-            self.form_data.customer_data['billing_address'] = billing_address
+            # Auto-sync from session state
+            if "billing_street" in st.session_state:
+                self.form_data.customer_data['billing_address'] = st.session_state["billing_street"]
+                
             col1, col2 = st.columns(2)
             with col1:
-                billing_city = st.text_input(
+                st.text_input(
                     "City",
                     value=self.form_data.customer_data.get('billing_city', ''),
                     key="billing_city"
                 )
-                self.form_data.customer_data['billing_city'] = billing_city
-                billing_state = st.text_input(
+                # Auto-sync from session state
+                if "billing_city" in st.session_state:
+                    self.form_data.customer_data['billing_city'] = st.session_state["billing_city"]
+                    
+                st.text_input(
                     "State",
                     value=self.form_data.customer_data.get('billing_state', ''),
                     key="billing_state"
                 )
-                self.form_data.customer_data['billing_state'] = billing_state
+                # Auto-sync from session state
+                if "billing_state" in st.session_state:
+                    self.form_data.customer_data['billing_state'] = st.session_state["billing_state"]
+                    
             with col2:
-                billing_zip = st.text_input(
+                st.text_input(
                     "ZIP Code",
                     value=self.form_data.customer_data.get('billing_zip', ''),
                     key="billing_zip"
                 )
-                self.form_data.customer_data['billing_zip'] = billing_zip
+                # Auto-sync from session state
+                if "billing_zip" in st.session_state:
+                    self.form_data.customer_data['billing_zip'] = st.session_state["billing_zip"]
         else:
             self.form_data.customer_data.update({
                 'billing_address': self.form_data.customer_data.get('service_address', ''),
@@ -1294,16 +1323,23 @@ class ServiceScheduler:
         st.subheader("Service Address")
         
         # Service address fields (optional)
-        self.form_data.customer_data['service_street'] = st.text_input(
+        st.text_input(
             "Service Street Address (Optional)",
             value=self.form_data.customer_data.get('service_street', ''),
             key="service_street_input"
         )
-        self.form_data.customer_data['service_city'] = st.text_input(
+        # Auto-sync from session state
+        if "service_street_input" in st.session_state:
+            self.form_data.customer_data['service_street'] = st.session_state["service_street_input"]
+            
+        st.text_input(
             "Service City (Optional)",
             value=self.form_data.customer_data.get('service_city', ''),
             key="service_city_input"
         )
+        # Auto-sync from session state
+        if "service_city_input" in st.session_state:
+            self.form_data.customer_data['service_city'] = st.session_state["service_city_input"]
         
         col1, col2 = st.columns(2)
         with col1:
@@ -1314,18 +1350,25 @@ class ServiceScheduler:
             except ValueError:
                 state_index = 0
                 
-            self.form_data.customer_data['service_state'] = st.selectbox(
+            st.selectbox(
                 "Service State (Optional)",
                 options=states,
                 index=state_index,
                 key="service_state_select"
             )
+            # Auto-sync from session state
+            if "service_state_select" in st.session_state:
+                self.form_data.customer_data['service_state'] = st.session_state["service_state_select"]
+                
         with col2:
-            self.form_data.customer_data['service_zip'] = st.text_input(
+            st.text_input(
                 "Service ZIP Code (Optional)",
                 value=self.form_data.customer_data.get('service_zip', ''),
                 key="service_zip_input"
             )
+            # Auto-sync from session state
+            if "service_zip_input" in st.session_state:
+                self.form_data.customer_data['service_zip'] = st.session_state["service_zip_input"]
 
     def save_service(self) -> bool:
         """Save complete service booking and send confirmation email if needed."""
