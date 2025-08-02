@@ -21,7 +21,8 @@ from utils.formatting import format_currency
 # from utils.email import send_service_scheduled_email, send_service_completed_email
 from utils.validation import validate_phone, validate_email, validate_zip_code, sanitize_zip_code
 from utils.email import generate_service_scheduled_email
-from utils.email import generate_service_completed_email 
+from utils.email import generate_service_completed_email
+from utils.sms import send_service_notification_sms 
 from pages.settings.business import fetch_business_info  # Add this import
 
 # In new_service.py
@@ -137,7 +138,7 @@ class ServiceFormData:
                 'billing_city': '',
                 'billing_state': '',
                 'billing_zip': '',
-                'primary_contact_method': 'Phone',
+                'primary_contact_method': 'SMS',
                 'text_flag': False,
                 'comments': '',
                 'member_flag': False,
@@ -679,7 +680,7 @@ class ServiceScheduler:
         with col1:
             primary_contact_method = st.selectbox(
                 "Preferred Contact Method",
-                ["Phone", "Text", "Email"],
+                ["SMS", "Phone", "Email"],
                 key="new_contact_method"
             )
             self.form_data.customer_data['primary_contact_method'] = primary_contact_method
@@ -1114,7 +1115,7 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
         
         query = """
         INSERT INTO OPERATIONAL.CARPET.SERVICE_ADDRESSES (
-            CUSTOMER_ID,
+            ACCOUNT_ID,
             STREET_ADDRESS,
             CITY,
             STATE,
@@ -1124,7 +1125,7 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """
         params = [
-            account_id,  # Using account_id in place of customer_id for commercial accounts
+            account_id,  # Using proper ACCOUNT_ID field for commercial accounts
             str(data.get('service_address', '')).strip(),
             str(data.get('service_city', '')).strip(),
             str(data.get('service_state', '')).strip(),
@@ -1140,7 +1141,7 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
             """
             SELECT ADDRESS_ID 
             FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES 
-            WHERE CUSTOMER_ID = ? 
+            WHERE ACCOUNT_ID = ? 
             ORDER BY CREATED_AT DESC 
             LIMIT 1
             """,
@@ -1204,7 +1205,8 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
                 deposit_amount=service_data['deposit'],
                 notes=service_data['notes'],
                 is_recurring=service_data['is_recurring'],
-                recurrence_pattern=service_data['recurrence_pattern']
+                recurrence_pattern=service_data['recurrence_pattern'],
+                customer_data=self.form_data.customer_data
             )
             if not service_scheduled:
                 st.error("Failed to schedule service")
@@ -1238,14 +1240,44 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
                 }
                 business_info = fetch_business_info()
                 if not business_info:
-                    success_message.append("Note: Unable to send confirmation email - missing business info")
+                    success_message.append("Note: Unable to send confirmation - missing business info")
                 else:
-                    email_result = generate_service_scheduled_email(service_details, business_info)
-                    if email_result and email_result.success:
-                        success_message.append("Confirmation email sent!")
-                    else:
-                        error_msg = email_result.message if email_result else "Unknown error"
-                        success_message.append(f"Note: Unable to send confirmation email - {error_msg}")
+                    # Get customer's preferred contact method
+                    preferred_method = self.form_data.customer_data.get('primary_contact_method', 'SMS')
+                    
+                    # Try to send via preferred method first
+                    notification_sent = False
+                    
+                    if preferred_method == 'SMS' and self.form_data.customer_data.get('phone_number'):
+                        sms_result = send_service_notification_sms(
+                            customer_phone=self.form_data.customer_data['phone_number'],
+                            service_details=service_details,
+                            business_info=business_info,
+                            notification_type="scheduled"
+                        )
+                        if sms_result and sms_result.success:
+                            success_message.append("Confirmation SMS sent!")
+                            notification_sent = True
+                        else:
+                            error_msg = sms_result.message if sms_result else "Unknown SMS error"
+                            success_message.append(f"SMS failed ({error_msg}), trying email...")
+                    
+                    # If SMS failed or email is preferred, try email
+                    if not notification_sent and self.form_data.customer_data.get('email_address'):
+                        email_result = generate_service_scheduled_email(service_details, business_info)
+                        if email_result and email_result.success:
+                            success_message.append("Confirmation email sent!")
+                            notification_sent = True
+                        else:
+                            error_msg = email_result.message if email_result else "Unknown email error"
+                            success_message.append(f"Email also failed: {error_msg}")
+                    
+                    # If both failed or no contact info
+                    if not notification_sent:
+                        if preferred_method == 'Phone':
+                            success_message.append("Phone confirmation preferred - please call customer")
+                        else:
+                            success_message.append("Note: Unable to send automatic confirmation")
 
             st.session_state['success_message'] = '\n'.join(success_message)
             st.session_state['show_notification'] = True
@@ -1360,7 +1392,7 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
                         'last_name': ' '.join(customer_name.split(' ')[1:]) if ' ' in customer_name else '',
                         'phone_number': '',
                         'email_address': '',
-                        'primary_contact_method': 'Phone',
+                        'primary_contact_method': 'SMS',
                         'text_flag': False,
                         'is_commercial': False,
                         'service_address': '',
@@ -1490,21 +1522,72 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
         try:
             if 'service_costs' not in st.session_state:
                 st.session_state.service_costs = {}
+            
+            # Initialize create service state
+            if 'show_create_service' not in st.session_state:
+                st.session_state.show_create_service = False
 
-            selected_services = st.multiselect(
-                "Select Services",
-                options=services_df['SERVICE_NAME'].tolist(),
-                default=st.session_state.get('selected_services', []),
-                key="services_select"
-            )
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                selected_services = st.multiselect(
+                    "Select Services",
+                    options=services_df['SERVICE_NAME'].tolist(),
+                    default=st.session_state.get('selected_services', []),
+                    key="services_select"
+                )
+            
+            with col2:
+                if st.button("➕ Create New Service", use_container_width=True, help="Create a new service type if it's not in the list above"):
+                    st.session_state.show_create_service = True
+                    st.rerun()
+            
+            # Handle create new service
+            if st.session_state.show_create_service:
+                st.markdown("---")
+                st.info("💡 **Tip:** Use this to create a new service type that doesn't exist in the list above. The new service will be available for future bookings.")
+                from utils.service_utils import display_create_service_form
+                
+                create_result = display_create_service_form(key_suffix="new_service_page")
+                
+                if create_result == "cancelled":
+                    st.session_state.show_create_service = False
+                    st.rerun()
+                elif create_result:
+                    # Service was created successfully
+                    st.session_state.show_create_service = False
+                    # Add the new service to selected services
+                    new_service_name = create_result['service_name']
+                    if new_service_name not in selected_services:
+                        selected_services.append(new_service_name)
+                        st.session_state.selected_services = selected_services
+                    # Clear the services cache so it refreshes with the new service
+                    fetch_services.clear()  # Clear Streamlit cache for fetch_services function
+                    st.success(f"Service '{new_service_name}' created and added to selection!")
+                    st.rerun()
+                
+                # Don't continue with the rest of the form while creating service
+                return False
+            
             st.session_state.selected_services = selected_services
             self.form_data.service_selection['selected_services'] = selected_services
 
             if selected_services:
-                total_cost = sum(
-                    float(services_df.loc[services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
-                    for service in selected_services
-                )
+                # Re-fetch services to ensure newly created services are included
+                current_services_df = fetch_services()
+                try:
+                    total_cost = sum(
+                        float(current_services_df.loc[current_services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
+                        for service in selected_services
+                    )
+                except (IndexError, KeyError):
+                    # If a service is not found, re-fetch again (race condition handling)
+                    fetch_services.clear()
+                    current_services_df = fetch_services()
+                    total_cost = sum(
+                        float(current_services_df.loc[current_services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
+                        for service in selected_services
+                    )
                 st.write(f"Total Cost: ${total_cost:.2f}")
 
                 # Recurring Service

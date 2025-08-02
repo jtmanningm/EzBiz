@@ -5,26 +5,33 @@ import uuid
 from typing import Optional, Tuple, Dict, List
 from database.connection import snowflake_conn
 
-def validate_password(password: str) -> Tuple[bool, str]:
+def validate_password(password: str) -> List[str]:
     """
     Validate password meets requirements:
     - At least 8 characters
     - Contains uppercase and lowercase
     - Contains at least one special character
     """
+    errors = []
+    
     if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+        errors.append("Password must be at least 8 characters long")
     
     if not re.search(r'[A-Z]', password):
-        return False, "Password must contain at least one uppercase letter"
+        errors.append("Password must contain at least one uppercase letter")
     
     if not re.search(r'[a-z]', password):
-        return False, "Password must contain at least one lowercase letter"
+        errors.append("Password must contain at least one lowercase letter")
     
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        return False, "Password must contain at least one special character"
+        errors.append("Password must contain at least one special character")
     
-    return True, "Password is valid"
+    return errors
+
+def validate_email(email: str) -> bool:
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
 
 def hash_password(password: str) -> str:
     """Hash password using PBKDF2-SHA256"""

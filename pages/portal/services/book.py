@@ -7,6 +7,8 @@ from database.connection import snowflake_conn
 from pages.settings.business import fetch_business_info
 from models.service import schedule_recurring_services
 from models.service import get_available_time_slots
+from utils.sms import send_service_notification_sms
+from utils.email import generate_service_scheduled_email
 
 
 def get_client_info() -> str:
@@ -325,7 +327,9 @@ def book_service_page():
         
         with col2:
             if selected_date:
-                times = get_available_time_slots(selected_date)
+                # Use the selected service to get more accurate time slots
+                service_name = st.session_state.selected_service['SERVICE_NAME'] if st.session_state.selected_service else "Standard Service"
+                times = get_available_time_slots(selected_date, [service_name])
                 
                 if not times:
                     st.warning("No available times for selected date")
@@ -337,8 +341,20 @@ def book_service_page():
                     )
                     
                     if selected_time:
-                        st.session_state.selected_date = selected_date
-                        st.session_state.selected_time = selected_time
+                        # Double-check availability before confirming
+                        from utils.double_booking_prevention import check_for_booking_conflicts
+                        is_available, error_message, conflicts = check_for_booking_conflicts(
+                            service_date=selected_date,
+                            service_time=selected_time,
+                            service_names=[service_name]
+                        )
+                        
+                        if is_available:
+                            st.session_state.selected_date = selected_date
+                            st.session_state.selected_time = selected_time
+                        else:
+                            st.error(f"⚠️ {error_message}")
+                            st.info("Please select a different time slot.")
         
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
@@ -444,6 +460,21 @@ def book_service_page():
         with col3:
             if st.button("Confirm Booking", type="primary", use_container_width=True):
                 try:
+                    # Final availability check before booking
+                    from utils.double_booking_prevention import check_for_booking_conflicts
+                    service_name = service['SERVICE_NAME']
+                    
+                    is_available, error_message, conflicts = check_for_booking_conflicts(
+                        service_date=st.session_state.selected_date,
+                        service_time=st.session_state.selected_time,
+                        service_names=[service_name]
+                    )
+                    
+                    if not is_available:
+                        st.error(f"❌ Booking failed: {error_message}")
+                        st.info("Please select a different time slot and try again.")
+                        return
+                    
                     # Calculate end time based on service duration
                     service_duration = service['SERVICE_DURATION'] if 'SERVICE_DURATION' in service else 60
                     end_time = (datetime.combine(st.session_state.selected_date, 
@@ -510,6 +541,23 @@ def book_service_page():
                     
                     # Handle recurring bookings if needed
                     if st.session_state.is_recurring:
+                        # Validate recurring availability before creating all bookings
+                        from utils.double_booking_prevention import validate_recurring_service_availability
+                        all_available, conflict_messages, conflict_dates = validate_recurring_service_availability(
+                            base_date=st.session_state.selected_date,
+                            service_time=st.session_state.selected_time,
+                            service_names=[service_name],
+                            recurrence_pattern=st.session_state.recurrence_pattern
+                        )
+                        
+                        if not all_available:
+                            st.warning("⚠️ Some recurring bookings have conflicts:")
+                            for message in conflict_messages[:5]:  # Show first 5 conflicts
+                                st.write(f"• {message}")
+                            if len(conflict_messages) > 5:
+                                st.write(f"... and {len(conflict_messages) - 5} more conflicts")
+                            st.info("Recurring service scheduled successfully for available dates only. Conflicted dates were skipped.")
+                        
                         handle_recurring_bookings(
                             service=service,
                             base_date=st.session_state.selected_date,
@@ -519,6 +567,63 @@ def book_service_page():
                             pattern=st.session_state.recurrence_pattern,
                             notes=st.session_state.booking_notes
                         )
+                    
+                    # Send confirmation notification
+                    try:
+                        # Get customer info for notifications
+                        customer_query = """
+                        SELECT 
+                            FIRST_NAME,
+                            LAST_NAME,
+                            EMAIL_ADDRESS,
+                            PHONE_NUMBER,
+                            PRIMARY_CONTACT_METHOD
+                        FROM OPERATIONAL.CARPET.CUSTOMER
+                        WHERE CUSTOMER_ID = ?
+                        """
+                        customer_result = snowflake_conn.execute_query(customer_query, [st.session_state.customer_id])
+                        
+                        if customer_result:
+                            customer_info = customer_result[0]
+                            business_info = fetch_business_info()
+                            
+                            # Prepare service details for notification
+                            service_details = {
+                                'customer_name': f"{customer_info['FIRST_NAME']} {customer_info['LAST_NAME']}",
+                                'customer_email': customer_info['EMAIL_ADDRESS'],
+                                'service_type': service['SERVICE_NAME'],
+                                'date': st.session_state.selected_date.strftime('%B %d, %Y'),
+                                'time': st.session_state.selected_time.strftime('%I:%M %p'),
+                                'deposit_required': False,
+                                'deposit_amount': 0,
+                                'deposit_paid': True,
+                                'notes': st.session_state.booking_notes,
+                                'total_cost': float(service['COST'])
+                            }
+                            
+                            # Send notification based on customer preference
+                            preferred_method = customer_info.get('PRIMARY_CONTACT_METHOD', 'SMS')
+                            notification_sent = False
+                            
+                            if preferred_method == 'SMS' and customer_info.get('PHONE_NUMBER'):
+                                sms_result = send_service_notification_sms(
+                                    customer_phone=customer_info['PHONE_NUMBER'],
+                                    service_details=service_details,
+                                    business_info=business_info,
+                                    notification_type="scheduled"
+                                )
+                                if sms_result and sms_result.success:
+                                    notification_sent = True
+                            
+                            # Fallback to email if SMS failed or email is preferred
+                            if not notification_sent and customer_info.get('EMAIL_ADDRESS'):
+                                email_result = generate_service_scheduled_email(service_details, business_info)
+                                if email_result and email_result.success:
+                                    notification_sent = True
+                            
+                    except Exception as e:
+                        print(f"Notification error: {str(e)}")
+                        # Don't fail the booking if notification fails
                     
                     st.success("Service scheduled successfully!")
                     # st.balloons()

@@ -198,7 +198,7 @@ def register_customer_page():
         with col1:
             contact_method = st.selectbox(
                 "Preferred Contact Method*",
-                options=["Phone", "Email", "Text"]
+                options=["SMS", "Phone", "Email"]
             )
         with col2:
             text_updates = st.checkbox("Opt-in to Text Messages")

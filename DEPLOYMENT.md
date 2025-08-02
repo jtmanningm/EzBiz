@@ -72,6 +72,12 @@ private_key_passphrase = "Lizard24"
 api_key = "YOUR_ACTUAL_API_KEY_HERE"
 domain = "joinezbiz.com"
 test_domain = "sandbox16a2d63b058f4bbc914143c47438384a.mailgun.org"
+
+# Twilio SMS credentials
+[twilio]
+account_sid = "YOUR_TWILIO_ACCOUNT_SID"
+auth_token = "YOUR_TWILIO_AUTH_TOKEN"
+from_phone = "YOUR_TWILIO_PHONE_NUMBER"
 ```
 
 4. Save the secrets

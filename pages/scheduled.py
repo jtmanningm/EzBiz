@@ -193,16 +193,75 @@ def scheduled_services_page():
     if 'deposit_confirmation_state' not in st.session_state:
         st.session_state.deposit_confirmation_state = None
 
-    # Date range selection
+    # Date range selection with quick options
+    st.subheader("Filter by Date Range")
+    
+    # Quick date range options
+    col1, col2, col3, col4 = st.columns(4)
+    today = datetime.now().date()
+    
+    with col1:
+        if st.button("📅 Today", use_container_width=True):
+            st.session_state.scheduled_start_date = today
+            st.session_state.scheduled_end_date = today
+            st.rerun()
+    
+    with col2:
+        if st.button("📆 This Week", use_container_width=True):
+            # Monday of current week
+            start_of_week = today - timedelta(days=today.weekday())
+            end_of_week = start_of_week + timedelta(days=6)
+            st.session_state.scheduled_start_date = start_of_week
+            st.session_state.scheduled_end_date = end_of_week
+            st.rerun()
+    
+    with col3:
+        if st.button("🗓️ This Month", use_container_width=True):
+            start_of_month = today.replace(day=1)
+            # Last day of current month
+            if today.month == 12:
+                end_of_month = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                end_of_month = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+            st.session_state.scheduled_start_date = start_of_month
+            st.session_state.scheduled_end_date = end_of_month
+            st.rerun()
+    
+    with col4:
+        if st.button("📋 Next 30 Days", use_container_width=True):
+            st.session_state.scheduled_start_date = today
+            st.session_state.scheduled_end_date = today + timedelta(days=30)
+            st.rerun()
+    
+    # Custom date range inputs
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("Start Date", value=datetime.now().date())
+        start_date = st.date_input(
+            "Start Date", 
+            value=st.session_state.get('scheduled_start_date', today),
+            key="scheduled_start_input"
+        )
+        st.session_state.scheduled_start_date = start_date
     with col2:
-        end_date = st.date_input("End Date", value=datetime.now().date() + timedelta(days=30))
+        end_date = st.date_input(
+            "End Date", 
+            value=st.session_state.get('scheduled_end_date', today + timedelta(days=30)),
+            key="scheduled_end_input"
+        )
+        st.session_state.scheduled_end_date = end_date
 
     try:
         query = """
-        WITH RankedAddresses AS (
+        WITH DirectAddresses AS (
+            SELECT 
+                ADDRESS_ID,
+                STREET_ADDRESS,
+                CITY,
+                STATE,
+                ZIP_CODE
+            FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
+        ),
+        RankedCustomerAddresses AS (
             SELECT 
                 CUSTOMER_ID,
                 STREET_ADDRESS,
@@ -214,6 +273,21 @@ def scheduled_services_page():
                     CREATED_AT DESC
                 ) as rn
             FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
+            WHERE CUSTOMER_ID IS NOT NULL AND ACCOUNT_ID IS NULL
+        ),
+        RankedAccountAddresses AS (
+            SELECT 
+                ACCOUNT_ID,
+                STREET_ADDRESS,
+                CITY,
+                STATE,
+                ZIP_CODE,
+                ROW_NUMBER() OVER (PARTITION BY ACCOUNT_ID ORDER BY 
+                    CASE WHEN IS_PRIMARY_SERVICE = TRUE THEN 0 ELSE 1 END,
+                    CREATED_AT DESC
+                ) as rn
+            FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
+            WHERE ACCOUNT_ID IS NOT NULL
         )
         SELECT DISTINCT
             ST.ID as TRANSACTION_ID,
@@ -226,19 +300,26 @@ def scheduled_services_page():
             ST.SERVICE_DATE,
             ST.START_TIME,
             ST.STATUS,
-            C.FIRST_NAME || ' ' || C.LAST_NAME as CUSTOMER_NAME,  
+            CASE 
+                WHEN ST.CUSTOMER_ID IS NOT NULL THEN C.FIRST_NAME || ' ' || C.LAST_NAME
+                WHEN ST.ACCOUNT_ID IS NOT NULL THEN A.ACCOUNT_NAME
+                ELSE 'Unknown Customer'
+            END as CUSTOMER_NAME,
             ST.COMMENTS,
             ST.IS_RECURRING,
             ST.RECURRENCE_PATTERN,
             COALESCE(ST.BASE_SERVICE_COST, ST.AMOUNT) as BASE_SERVICE_COST,  -- Use AMOUNT if BASE_SERVICE_COST is null
-            RA.STREET_ADDRESS as SERVICE_ADDRESS,
-            RA.CITY as SERVICE_CITY,
-            RA.STATE as SERVICE_STATE,
-            RA.ZIP_CODE as SERVICE_ZIP
+            COALESCE(DA.STREET_ADDRESS, RCA.STREET_ADDRESS, RAA.STREET_ADDRESS) as SERVICE_ADDRESS,
+            COALESCE(DA.CITY, RCA.CITY, RAA.CITY) as SERVICE_CITY,
+            COALESCE(DA.STATE, RCA.STATE, RAA.STATE) as SERVICE_STATE,
+            COALESCE(DA.ZIP_CODE, RCA.ZIP_CODE, RAA.ZIP_CODE) as SERVICE_ZIP
         FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION ST
         LEFT JOIN OPERATIONAL.CARPET.SERVICES S ON ST.SERVICE_ID = S.SERVICE_ID
         LEFT JOIN OPERATIONAL.CARPET.CUSTOMER C ON ST.CUSTOMER_ID = C.CUSTOMER_ID
-        LEFT JOIN RankedAddresses RA ON ST.CUSTOMER_ID = RA.CUSTOMER_ID AND RA.rn = 1
+        LEFT JOIN OPERATIONAL.CARPET.ACCOUNTS A ON ST.ACCOUNT_ID = A.ACCOUNT_ID
+        LEFT JOIN DirectAddresses DA ON ST.ADDRESS_ID = DA.ADDRESS_ID
+        LEFT JOIN RankedCustomerAddresses RCA ON ST.CUSTOMER_ID = RCA.CUSTOMER_ID AND RCA.rn = 1
+        LEFT JOIN RankedAccountAddresses RAA ON ST.ACCOUNT_ID = RAA.ACCOUNT_ID AND RAA.rn = 1
         WHERE ST.SERVICE_DATE >= ?
         AND ST.SERVICE_DATE <= ?
         AND ST.STATUS IN ('SCHEDULED', 'IN_PROGRESS')  -- Include both statuses

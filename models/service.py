@@ -180,12 +180,24 @@ def save_service_schedule(
     deposit_amount: float = 0.0,
     notes: Optional[str] = None,
     is_recurring: bool = False,
-    recurrence_pattern: Optional[str] = None
+    recurrence_pattern: Optional[str] = None,
+    customer_data: Optional[Dict[str, Any]] = None
 ) -> bool:
-    """Save service schedule and create initial transaction record."""
+    """Save service schedule and create initial transaction record with enhanced double booking prevention."""
     try:
-        # Convert single service to list for consistent handling
+        # Final availability check before saving
+        from utils.double_booking_prevention import check_for_booking_conflicts
+        
         service_list = services if isinstance(services, list) else [services]
+        is_available, error_message, conflicts = check_for_booking_conflicts(
+            service_date=service_date,
+            service_time=service_time,
+            service_names=service_list
+        )
+        
+        if not is_available:
+            st.error(f"❌ Cannot schedule service: {error_message}")
+            return False
 
         # Get service IDs and calculate total cost
         service_ids = []
@@ -233,6 +245,7 @@ def save_service_schedule(
         INSERT INTO OPERATIONAL.CARPET.SERVICE_TRANSACTION (
             CUSTOMER_ID,
             ACCOUNT_ID,
+            ADDRESS_ID,
             SERVICE_NAME,
             SERVICE_ID,
             SERVICE2_ID,
@@ -247,12 +260,18 @@ def save_service_schedule(
             BASE_SERVICE_COST,
             AMOUNT,
             STATUS
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, 'SCHEDULED')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, 'SCHEDULED')
         """
+        
+        # Get address ID from customer data if available
+        address_id = None
+        if customer_data and 'service_address_id' in customer_data:
+            address_id = customer_data['service_address_id']
         
         params = [
             safe_customer_id,
             safe_account_id,
+            address_id,
             service_list[0],  # Primary service name
             int(service_ids[0]),   # Primary service ID
             service2_id,
@@ -278,6 +297,23 @@ def save_service_schedule(
 
         # Schedule recurring services if needed
         if is_recurring and recurrence_pattern:
+            # Validate recurring availability
+            from utils.double_booking_prevention import validate_recurring_service_availability
+            all_available, conflict_messages, conflict_dates = validate_recurring_service_availability(
+                base_date=service_date,
+                service_time=service_time,
+                service_names=service_list,
+                recurrence_pattern=recurrence_pattern
+            )
+            
+            if not all_available:
+                st.warning("⚠️ Some recurring service dates have conflicts:")
+                for message in conflict_messages[:3]:  # Show first 3 conflicts
+                    st.write(f"• {message}")
+                if len(conflict_messages) > 3:
+                    st.write(f"... and {len(conflict_messages) - 3} more conflicts")
+                st.info("Recurring services will be created for available dates only. Conflicted dates will be skipped.")
+            
             schedule_recurring_services(
                 services=service_list,
                 service_date=service_date,
@@ -441,11 +477,26 @@ def schedule_recurring_services(
 
         # Create transaction records directly for each future date
         for future_date in future_dates:
+            # Check availability for this specific date before creating record
+            from utils.double_booking_prevention import check_for_booking_conflicts
+            
+            is_available, _, _ = check_for_booking_conflicts(
+                service_date=future_date,
+                service_time=service_time,
+                service_names=service_list
+            )
+            
+            # Skip this date if there's a conflict
+            if not is_available:
+                debug_print(f"Skipping recurring service on {future_date} due to conflict")
+                continue
+            
             # Create recurring service transaction record directly
             query = """
             INSERT INTO OPERATIONAL.CARPET.SERVICE_TRANSACTION (
                 CUSTOMER_ID,
                 ACCOUNT_ID,
+                ADDRESS_ID,
                 SERVICE_NAME,
                 SERVICE_ID,
                 SERVICE2_ID,
@@ -460,12 +511,13 @@ def schedule_recurring_services(
                 BASE_SERVICE_COST,
                 AMOUNT,
                 STATUS
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, 'SCHEDULED')
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, 'SCHEDULED')
             """
             
             params = [
                 safe_customer_id,
                 safe_account_id,
+                address_id,  # Use the same address_id from the initial service
                 service_list[0],  # Primary service name
                 int(service_ids[0]),   # Primary service ID
                 service2_id,
@@ -492,66 +544,16 @@ def schedule_recurring_services(
         return False
 
 def get_available_time_slots(selected_date: date, selected_services: List[str] = None) -> List[time]:
-    """Get available time slots for a given date and selected services"""
+    """Get available time slots for a given date and selected services using enhanced double booking prevention"""
+    from utils.double_booking_prevention import get_available_time_slots_enhanced
     
-    # Get business hours
-    business_start = time(8, 0)  # 8 AM
-    business_end = time(17, 0)   # 5 PM
+    if not selected_services:
+        selected_services = ["Standard Service"]  # Default service
     
-    # Get booked slots
-    bookings_query = """
-    SELECT 
-        t.START_TIME,
-        s.SERVICE_DURATION
-    FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION t
-    JOIN OPERATIONAL.CARPET.SERVICES s ON t.SERVICE_ID = s.SERVICE_ID
-    WHERE t.SERVICE_DATE = ?
-    AND t.STATUS = 'SCHEDULED'
-    ORDER BY t.START_TIME
-    """
-    
-    booked_times = snowflake_conn.execute_query(bookings_query, [selected_date]) or []
-    
-    # Calculate total service duration if services are selected
-    total_duration = 60  # default duration
-    if selected_services:
-        services_query = """
-        SELECT SUM(SERVICE_DURATION) as TOTAL_DURATION
-        FROM OPERATIONAL.CARPET.SERVICES
-        WHERE SERVICE_NAME IN ({})
-        """.format(','.join(['?' for _ in selected_services]))
-        
-        duration_result = snowflake_conn.execute_query(services_query, selected_services)
-        if duration_result and duration_result[0]['TOTAL_DURATION']:
-            total_duration = int(duration_result[0]['TOTAL_DURATION'])
-    
-    # Generate available slots
-    slot_duration = 30  # minutes
-    current_slot = datetime.combine(selected_date, business_start)
-    end_time = datetime.combine(selected_date, business_end)
-    
-    available_slots = []
-    while current_slot + timedelta(minutes=total_duration) <= end_time:
-        slot_available = True
-        slot_end = current_slot + timedelta(minutes=total_duration)
-        
-        for booking in booked_times:
-            if not booking['START_TIME']:
-                continue
-            booking_start = datetime.combine(selected_date, booking['START_TIME'])
-            booking_duration = int(booking['SERVICE_DURATION'] if booking['SERVICE_DURATION'] is not None else 60)
-            booking_end = booking_start + timedelta(minutes=booking_duration)
-            
-            if current_slot < booking_end and slot_end > booking_start:
-                slot_available = False
-                break
-        
-        if slot_available:
-            available_slots.append(current_slot.time())
-        
-        current_slot += timedelta(minutes=slot_duration)
-        
-    return available_slots
+    return get_available_time_slots_enhanced(
+        service_date=selected_date,
+        service_names=selected_services
+    )
 
 
 def get_transaction_service_details(transaction_id: int) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -668,65 +670,19 @@ def get_transaction_service_details(transaction_id: int) -> Tuple[Dict[str, Any]
         return None, []
 
 def check_service_availability(service_date: date, service_time: time, selected_services: List[str] = None) -> Tuple[bool, Optional[str]]:
-    """Check if the selected time slot is available considering service duration"""
-    try:
-        # Get total service duration
-        total_duration = 60  # Default duration
-        if selected_services:
-            duration_query = """
-            SELECT SUM(SERVICE_DURATION) as TOTAL_DURATION
-            FROM OPERATIONAL.CARPET.SERVICES
-            WHERE SERVICE_NAME IN ({})
-            """.format(','.join(['?' for _ in selected_services]))
-            duration_result = snowflake_conn.execute_query(duration_query, selected_services)
-            if duration_result and duration_result[0]['TOTAL_DURATION']:
-                total_duration = int(duration_result[0]['TOTAL_DURATION'])
-
-        # Calculate the requested end time
-        requested_start = datetime.combine(service_date, service_time)
-        requested_end = requested_start + timedelta(minutes=total_duration)
-
-        # Check business hours
-        if service_time < time(8, 0) or requested_end.time() > time(17, 0):
-            return False, "Service must be scheduled between 8 AM and 5 PM."
-
-        # Check for overlapping bookings
-        booked_slots_query = """
-        SELECT 
-            ST.START_TIME,
-            COALESCE(S.SERVICE_DURATION, 60) as SERVICE_DURATION
-        FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION ST
-        LEFT JOIN OPERATIONAL.CARPET.SERVICES S ON ST.SERVICE_NAME = S.SERVICE_NAME
-        WHERE ST.SERVICE_DATE = ?
-        AND ST.STATUS IN ('SCHEDULED', 'IN_PROGRESS')
-        """
-        booked_slots = snowflake_conn.execute_query(booked_slots_query, [service_date.strftime('%Y-%m-%d')])
-
-        if booked_slots:
-            for booked in booked_slots:
-                # Handle different time formats
-                booked_time = booked['START_TIME']
-                if isinstance(booked_time, str):
-                    hour, minute, second = map(int, booked_time.split(':'))
-                    booked_time = time(hour, minute, second)
-                elif isinstance(booked_time, datetime):
-                    booked_time = booked_time.time()
-
-                booked_duration = int(booked['SERVICE_DURATION'])
-                booked_start = datetime.combine(service_date, booked_time)
-                booked_end = booked_start + timedelta(minutes=booked_duration)
-
-                # Check for overlap
-                if (requested_start < booked_end and requested_end > booked_start):
-                    formatted_time = booked_time.strftime('%I:%M %p')
-                    return False, f"Time slot conflicts with existing service at {formatted_time}."
-
-        return True, None
-
-    except Exception as e:
-        st.error(f"Error checking service availability: {str(e)}")
-        st.error(f"Error details: {type(e)}")
-        return False, str(e)
+    """Check if the selected time slot is available using enhanced double booking prevention"""
+    from utils.double_booking_prevention import check_for_booking_conflicts
+    
+    if not selected_services:
+        selected_services = ["Standard Service"]  # Default service
+    
+    is_available, error_message, _ = check_for_booking_conflicts(
+        service_date=service_date,
+        service_time=service_time,
+        service_names=selected_services
+    )
+    
+    return is_available, error_message
 
 __all__ = [
     "ServiceModel",

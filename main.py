@@ -22,6 +22,7 @@ from config.settings import load_css
 
 # Import unified login
 from pages.auth.unified_login import unified_login_page
+from pages.auth.business_register import business_register_page
 from pages.portal.auth.register import register_customer_page
 from pages.portal.auth.reset import reset_password_handler
 
@@ -298,6 +299,7 @@ def main():
     # Define auth pages
     auth_pages = {
         'login': unified_login_page,
+        'business_register': business_register_page,
         'register': register_customer_page,
         'reset': reset_password_handler
     }

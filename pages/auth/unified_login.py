@@ -115,13 +115,19 @@ def unified_login_page():
 
     # Registration and reset buttons
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    st.markdown("### New User?")
+    col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("Register Account", use_container_width=True):
-            st.session_state.page = 'register'
+        if st.button("Register Business", use_container_width=True, type="primary"):
+            st.session_state.page = 'business_register'
             st.rerun()
             
     with col2:
+        if st.button("Customer Register", use_container_width=True):
+            st.session_state.page = 'register'
+            st.rerun()
+            
+    with col3:
         if st.button("Reset Password", use_container_width=True):
             st.session_state.page = 'reset'
             st.rerun()

@@ -17,7 +17,7 @@ class CustomerModel:
     billing_state: Optional[str] = None
     billing_zip: Optional[int] = None
     text_flag: bool = False
-    primary_contact_method: str = "Phone"
+    primary_contact_method: str = "SMS"
     comments: Optional[str] = None
     member_flag: bool = False
 

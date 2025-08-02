@@ -39,18 +39,63 @@ class CompletedServicesPage:
                 st.exception(e)
 
     def _get_date_range(self) -> Dict[str, datetime.date]:
-        """Get date range for filtering services"""
+        """Get date range for filtering services with quick options"""
+        st.subheader("Filter by Date Range")
+        
+        # Quick date range options
+        col1, col2, col3, col4 = st.columns(4)
+        today = datetime.now().date()
+        
+        with col1:
+            if st.button("📅 Today", use_container_width=True, key="completed_today"):
+                st.session_state.completed_start_date = today
+                st.session_state.completed_end_date = today
+                st.rerun()
+        
+        with col2:
+            if st.button("📆 This Week", use_container_width=True, key="completed_week"):
+                # Monday of current week
+                start_of_week = today - timedelta(days=today.weekday())
+                end_of_week = start_of_week + timedelta(days=6)
+                st.session_state.completed_start_date = start_of_week
+                st.session_state.completed_end_date = end_of_week
+                st.rerun()
+        
+        with col3:
+            if st.button("🗓️ This Month", use_container_width=True, key="completed_month"):
+                start_of_month = today.replace(day=1)
+                # Last day of current month
+                if today.month == 12:
+                    end_of_month = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+                else:
+                    end_of_month = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+                st.session_state.completed_start_date = start_of_month
+                st.session_state.completed_end_date = end_of_month
+                st.rerun()
+        
+        with col4:
+            if st.button("📋 Last 30 Days", use_container_width=True, key="completed_30days"):
+                st.session_state.completed_start_date = today - timedelta(days=30)
+                st.session_state.completed_end_date = today
+                st.rerun()
+        
+        # Custom date range inputs
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input(
                 "Start Date", 
-                value=datetime.now().date() - timedelta(days=30)
+                value=st.session_state.get('completed_start_date', today - timedelta(days=30)),
+                key="completed_start_input"
             )
+            st.session_state.completed_start_date = start_date
         with col2:
             end_date = st.date_input(
                 "End Date", 
-                value=datetime.now().date()
+                value=st.session_state.get('completed_end_date', today),
+                key="completed_end_input"
             )
+            st.session_state.completed_end_date = end_date
+        
         return {'start_date': start_date, 'end_date': end_date}
 
     def _get_payment_status_filter(self) -> str:
