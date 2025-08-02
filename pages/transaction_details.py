@@ -73,15 +73,18 @@ def transaction_details_page():
         t.START_TIME,
         t.MARKUP_PERCENTAGE,
         t.PRICE_ADJUSTMENTS_JSON,
+        t.AMOUNT,
         COALESCE(c.FIRST_NAME || ' ' || c.LAST_NAME, a.ACCOUNT_NAME) as CUSTOMER_NAME,
-        c.EMAIL_ADDRESS as CUSTOMER_EMAIL,  -- Added customer email
-        s1.SERVICE_NAME as PRIMARY_SERVICE_NAME,
-        s1.SERVICE_DURATION as PRIMARY_DURATION,
+        c.EMAIL_ADDRESS as CUSTOMER_EMAIL,
+        -- Use SERVICE_NAME from transaction as primary, fallback to service table join
+        COALESCE(t.SERVICE_NAME, s1.SERVICE_NAME) as PRIMARY_SERVICE_NAME,
+        COALESCE(s1.SERVICE_DURATION, 60) as PRIMARY_DURATION,
+        COALESCE(s1.COST, t.BASE_SERVICE_COST) as PRIMARY_SERVICE_COST,
         s2.SERVICE_NAME as SERVICE2_NAME,
         s2.COST as SERVICE2_COST,
         s3.SERVICE_NAME as SERVICE3_NAME,
         s3.COST as SERVICE3_COST,
-        sa.STREET_ADDRESS as SERVICE_ADDRESS,  -- Added service address
+        sa.STREET_ADDRESS as SERVICE_ADDRESS,
         sa.CITY as SERVICE_CITY,
         sa.STATE as SERVICE_STATE,
         sa.ZIP_CODE as SERVICE_ZIP
@@ -135,23 +138,17 @@ def transaction_details_page():
 
     # Display base cost information
     st.markdown("### Services")
-    base_cost = safe_get_float(safe_get_row_value(transaction, 'BASE_SERVICE_COST', 0))
     
-    # If base cost is 0, try using AMOUNT field as fallback
-    if base_cost == 0:
-        base_cost = safe_get_float(safe_get_row_value(transaction, 'AMOUNT', 0))
-    primary_service_name = safe_get_row_value(transaction, 'PRIMARY_SERVICE_NAME', None)
+    # Get primary service name from the enhanced query
+    primary_service_name = safe_get_row_value(transaction, 'PRIMARY_SERVICE_NAME', 'Unknown Service')
     
-    # If no primary service name from join, try getting from SERVICE_NAME field
-    if not primary_service_name:
-        primary_service_name = safe_get_row_value(transaction, 'SERVICE_NAME', 'Unknown Service')
+    # Get primary service cost - try PRIMARY_SERVICE_COST first, then BASE_SERVICE_COST, then AMOUNT
+    base_cost = (
+        safe_get_float(safe_get_row_value(transaction, 'PRIMARY_SERVICE_COST', 0)) or
+        safe_get_float(safe_get_row_value(transaction, 'BASE_SERVICE_COST', 0)) or
+        safe_get_float(safe_get_row_value(transaction, 'AMOUNT', 0))
+    )
     
-    # Force debug output to diagnose the issue
-    st.write("🔍 **DEBUG INFO** (temporary):")
-    st.write(f"Selected service from session: {st.session_state.get('selected_service', 'NOT FOUND')}")
-    st.write(f"Transaction ID being used: {transaction_id}")
-    st.write("Raw transaction data:")
-    st.json({k: str(v) for k, v in transaction.items()})
     
     # Debug information if in debug mode
     if st.session_state.get('debug_mode'):
