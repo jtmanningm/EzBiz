@@ -1518,358 +1518,6 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
 def new_service_page():
     """Main service scheduling page with improved UI organization."""
     try:
-                # Residential
-                validation_errors = self.validate_customer_data()
-                if validation_errors:
-                    for error in validation_errors:
-                        st.error(error)
-                    return False
-                customer_id = self.save_customer_and_get_id(self.form_data.customer_data)
-                if not customer_id:
-                    return False
-                self.form_data.customer_data['customer_id'] = customer_id
-
-            # Calculate total cost
-            services_df = fetch_services()
-            total_cost = sum(
-                float(services_df[services_df['SERVICE_NAME'] == service]['COST'].iloc[0])
-                for service in self.form_data.service_selection['selected_services']
-            )
-            service_data = {
-                'customer_id': self.form_data.customer_data.get('customer_id'),
-                'account_id': self.form_data.customer_data.get('account_id'),
-                'service_name': self.form_data.service_selection['selected_services'][0],
-                'service_date': self.form_data.service_schedule['date'],
-                'service_time': self.form_data.service_schedule['time'],
-                'deposit': float(self.form_data.service_selection['deposit_amount']),
-                'notes': self.form_data.service_selection.get('notes'),
-                'is_recurring': bool(self.form_data.service_selection['is_recurring']),
-                'recurrence_pattern': self.form_data.service_selection['recurrence_pattern']
-            }
-
-            # Save service schedule
-            service_scheduled = save_service_schedule(
-                customer_id=service_data['customer_id'],
-                account_id=service_data['account_id'],
-                services=self.form_data.service_selection['selected_services'],
-                service_date=service_data['service_date'],
-                service_time=service_data['service_time'],
-                deposit_amount=service_data['deposit'],
-                notes=service_data['notes'],
-                is_recurring=service_data['is_recurring'],
-                recurrence_pattern=service_data['recurrence_pattern'],
-                customer_data=self.form_data.customer_data
-            )
-            if not service_scheduled:
-                st.error("Failed to schedule service")
-                return False
-
-            success_message = [
-                "Service scheduled successfully!",
-                f"Deposit Amount: {format_currency(service_data['deposit'])}",
-                f"Remaining Balance: {format_currency(total_cost - service_data['deposit'])}"
-            ]
-            if service_data['is_recurring']:
-                success_message.append(f"Recurring: {service_data['recurrence_pattern']}")
-
-            # Optional: send email if we have an address
-            if self.form_data.customer_data.get('email_address'):
-                service_details = {
-                    'customer_name': (
-                        self.form_data.customer_data.get('business_name')
-                        if self.form_data.customer_data['is_commercial']
-                        else f"{self.form_data.customer_data.get('first_name', '')} {self.form_data.customer_data.get('last_name', '')}"
-                    ).strip(),
-                    'customer_email': self.form_data.customer_data['email_address'],
-                    'service_type': ', '.join(self.form_data.service_selection['selected_services']),
-                    'date': service_data['service_date'].strftime('%Y-%m-%d'),
-                    'time': service_data['service_time'].strftime('%I:%M %p'),
-                    'deposit_required': service_data['deposit'] > 0,
-                    'deposit_amount': service_data['deposit'],
-                    'deposit_paid': False,
-                    'notes': service_data['notes'],
-                    'total_cost': total_cost
-                }
-                business_info = fetch_business_info()
-                if not business_info:
-                    success_message.append("Note: Unable to send confirmation - missing business info")
-                else:
-                    # Get customer's preferred contact method
-                    preferred_method = self.form_data.customer_data.get('primary_contact_method', 'SMS')
-                    
-                    # Try to send via preferred method first
-                    notification_sent = False
-                    
-                    if preferred_method == 'SMS' and self.form_data.customer_data.get('phone_number'):
-                        sms_result = send_service_notification_sms(
-                            customer_phone=self.form_data.customer_data['phone_number'],
-                            service_details=service_details,
-                            business_info=business_info,
-                            notification_type="scheduled"
-                        )
-                        if sms_result and sms_result.success:
-                            success_message.append("Confirmation SMS sent!")
-                            notification_sent = True
-                        else:
-                            error_msg = sms_result.message if sms_result else "Unknown SMS error"
-                            success_message.append(f"SMS failed ({error_msg}), trying email...")
-                    
-                    # If SMS failed or email is preferred, try email
-                    if not notification_sent and self.form_data.customer_data.get('email_address'):
-                        email_result = generate_service_scheduled_email(service_details, business_info)
-                        if email_result and email_result.success:
-                            success_message.append("Confirmation email sent!")
-                            notification_sent = True
-                        else:
-                            error_msg = email_result.message if email_result else "Unknown email error"
-                            success_message.append(f"Email also failed: {error_msg}")
-                    
-                    # If both failed or no contact info
-                    if not notification_sent:
-                        if preferred_method == 'Phone':
-                            success_message.append("Phone confirmation preferred - please call customer")
-                        else:
-                            success_message.append("Note: Unable to send automatic confirmation")
-
-            st.session_state['success_message'] = '\n'.join(success_message)
-            st.session_state['show_notification'] = True
-            st.session_state['page'] = 'scheduled_services'
-
-            # Clear form data
-            st.session_state.form_data = ServiceFormData.initialize()
-
-            # Trigger rerun to navigate to scheduled services page
-            st.rerun()
-            return True
-
-        except Exception as e:
-            st.error(f"Error saving service: {str(e)}")
-            if st.session_state.get('debug_mode'):
-                st.exception(e)
-            return False
-
-    def display_customer_selector(self, matching_customers: List[str], customers_df: pd.DataFrame) -> None:
-        """Example method if you want to show a dropdown of matching customers."""
-        try:
-            if not matching_customers or customers_df is None:
-                return
-            selected_customer = st.selectbox(
-                "Select Customer",
-                options=["Select..."] + matching_customers,
-                key="customer_select"
-            )
-            if selected_customer and selected_customer != "Select...":
-                customer_details = customers_df[
-                    customers_df['FULL_NAME'] == selected_customer
-                ].iloc[0]
-                self.form_data.customer_data.update({
-                    'customer_id': int(customer_details['CUSTOMER_ID']),
-                    'first_name': customer_details.get('FIRST_NAME', ''),
-                    'last_name': customer_details.get('LAST_NAME', ''),
-                    'phone_number': customer_details.get('PHONE_NUMBER', ''),
-                    'email_address': customer_details.get('EMAIL_ADDRESS', ''),
-                    'primary_contact_method': customer_details.get('PRIMARY_CONTACT_METHOD', 'Phone'),
-                    'text_flag': customer_details.get('TEXT_FLAG', False),
-                    'is_commercial': False,
-                    'service_address': customer_details.get('SERVICE_ADDRESS', ''),
-                    'service_city': customer_details.get('SERVICE_CITY', ''),
-                    'service_state': customer_details.get('SERVICE_STATE', ''),
-                    'service_zip': customer_details.get('SERVICE_ZIP', ''),
-                    'service_addr_sq_ft': customer_details.get('SERVICE_ADDR_SQ_FT', 0),
-                    'billing_address': customer_details.get('BILLING_ADDRESS', ''),
-                    'billing_city': customer_details.get('BILLING_CITY', ''),
-                    'billing_state': customer_details.get('BILLING_STATE', ''),
-                    'billing_zip': customer_details.get('BILLING_ZIP', '')
-                })
-                self.display_customer_details(customer_details)
-            else:
-                self.display_customer_form()
-        except Exception as e:
-            st.error(f"Error selecting customer: {str(e)}")
-            if st.session_state.get('debug_mode'):
-                st.exception(e)
-
-    def handle_customer_search(self) -> None:
-        """Process residential customer search and selection."""
-        customer_name = st.text_input(
-            "Search Customer",
-            help="Enter customer name to search"
-        )
-        if customer_name:
-            existing_customers_df = fetch_all_customers()
-            if not existing_customers_df.empty:
-                search_term = customer_name.lower()
-                matching_customers = [
-                    f"{row['FIRST_NAME']} {row['LAST_NAME']}"
-                    for _, row in existing_customers_df.iterrows()
-                    if search_term in f"{row['FIRST_NAME']} {row['LAST_NAME']}".lower() or
-                       search_term in str(row['PHONE_NUMBER']).lower() or
-                       (pd.notnull(row['EMAIL_ADDRESS']) and search_term in str(row['EMAIL_ADDRESS']).lower())
-                ]
-                if matching_customers:
-                    selected_customer = st.selectbox(
-                        "Select Customer",
-                        options=["Select..."] + matching_customers,
-                        key="customer_select"
-                    )
-                    if selected_customer and selected_customer != "Select...":
-                        customer_details = existing_customers_df[
-                            (existing_customers_df['FIRST_NAME'] + " " + existing_customers_df['LAST_NAME']) == selected_customer
-                        ].iloc[0]
-                        self.form_data.customer_data.update({
-                            'customer_id': int(customer_details['CUSTOMER_ID']),
-                            'first_name': customer_details.get('FIRST_NAME', ''),
-                            'last_name': customer_details.get('LAST_NAME', ''),
-                            'phone_number': customer_details.get('PHONE_NUMBER', ''),
-                            'email_address': customer_details.get('EMAIL_ADDRESS', ''),
-                            'primary_contact_method': customer_details.get('PRIMARY_CONTACT_METHOD', 'Phone'),
-                            'text_flag': customer_details.get('TEXT_FLAG', False),
-                            'is_commercial': False,
-                            'service_address': customer_details.get('SERVICE_ADDRESS', ''),
-                            'service_city': customer_details.get('SERVICE_CITY', ''),
-                            'service_state': customer_details.get('SERVICE_STATE', ''),
-                            'service_zip': customer_details.get('SERVICE_ZIP', ''),
-                            'service_addr_sq_ft': customer_details.get('SERVICE_ADDR_SQ_FT', 0),
-                            'billing_address': customer_details.get('BILLING_ADDRESS', ''),
-                            'billing_city': customer_details.get('BILLING_CITY', ''),
-                            'billing_state': customer_details.get('BILLING_STATE', ''),
-                            'billing_zip': customer_details.get('BILLING_ZIP', '')
-                        })
-                        self.display_customer_details(customer_details)
-                else:
-                    st.info("No matching customers found. Please enter customer details below.")
-                    self.form_data.customer_data.update({
-                        'customer_id': None,
-                        'first_name': customer_name.split(' ')[0] if ' ' in customer_name else customer_name,
-                        'last_name': ' '.join(customer_name.split(' ')[1:]) if ' ' in customer_name else '',
-                        'phone_number': '',
-                        'email_address': '',
-                        'primary_contact_method': 'SMS',
-                        'text_flag': False,
-                        'is_commercial': False,
-                        'service_address': '',
-                        'service_city': '',
-                        'service_state': '',
-                        'service_zip': '',
-                        'service_addr_sq_ft': 0,
-                        'billing_address': '',
-                        'billing_city': '',
-                        'billing_state': '',
-                        'billing_zip': ''
-                    })
-                    self.display_customer_form()
-            else:
-                st.info("No customers found in system. Please enter new customer details.")
-                self.form_data.customer_data.update({
-                    'customer_id': None,
-                    'is_commercial': False
-                })
-                self.display_customer_form()
-        else:
-            self.display_customer_form()
-
-    def validate_customer_data(self) -> List[str]:
-        """Validate customer input data (both residential and commercial)."""
-        errors = []
-        data = self.form_data.customer_data
-
-        # If not commercial => Residential validation
-        if not data['is_commercial']:
-            # Required fields
-            if not data.get('first_name'):
-                errors.append("First name is required")
-            if not data.get('last_name'):
-                errors.append("Last name is required")
-
-            # Phone & email checks
-            if not data['phone_number'] or not validate_phone(data['phone_number']):
-                errors.append("Valid phone number is required")
-            if data['email_address'] and not validate_email(data['email_address']):
-                errors.append("Invalid email format")
-
-            # Service address checks
-            if not data['service_address']:
-                errors.append("Service street address is required")
-            if not data['service_city']:
-                errors.append("Service city is required")
-            if not data['service_state']:
-                errors.append("Service state is required")
-            if not data['service_zip']:
-                errors.append("Service ZIP code is required")
-
-            # Validate service_zip length & numeric
-            try:
-                if data['service_zip']:
-                    zip_int = int(str(data['service_zip']))
-                    if len(str(zip_int)) != 5:
-                        errors.append("Service ZIP code must be exactly 5 digits")
-            except ValueError:
-                errors.append("Service ZIP code must be a valid 5-digit number")
-
-            # If user indicated different billing address, validate those fields too
-            if data.get('different_billing'):
-                if not data['billing_address']:
-                    errors.append("Billing street address is required")
-                if not data['billing_city']:
-                    errors.append("Billing city is required")
-                if not data['billing_state']:
-                    errors.append("Billing state is required")
-                if not data['billing_zip']:
-                    errors.append("Billing ZIP code is required")
-
-                # Validate billing_zip length & numeric
-                try:
-                    if data['billing_zip']:
-                        zip_int = int(str(data['billing_zip']))
-                        if len(str(zip_int)) != 5:
-                            errors.append("Billing ZIP code must be exactly 5 digits")
-                except ValueError:
-                    errors.append("Billing ZIP code must be a valid 5-digit number")
-
-        else:
-            # Commercial validation
-            if not data['business_name']:
-                errors.append("Business name is required")
-            if not data['contact_person']:
-                errors.append("Contact person is required")
-            if not data['phone_number'] or not validate_phone(data['phone_number']):
-                errors.append("Valid phone number is required")
-
-        return errors
-
-
-    def display_service_address_form(self) -> None:
-        """Display form for entering the service address details (optional method)."""
-        st.markdown("#### Service Address")
-        self.form_data.customer_data['service_address'] = st.text_input(
-            "Service Street Address",
-            value=self.form_data.customer_data['service_address'],
-            key="service_street_input"
-        )
-        col1, col2 = st.columns(2)
-        with col1:
-            self.form_data.customer_data['service_city'] = st.text_input(
-                "Service City",
-                value=self.form_data.customer_data['service_city'],
-                key="service_city_input"
-            )
-        with col2:
-            self.form_data.customer_data['service_state'] = st.text_input(
-                "Service State",
-                value=self.form_data.customer_data['service_state'],
-                key="service_state_input"
-            )
-        self.form_data.customer_data['service_zip'] = st.text_input(
-            "Service ZIP Code",
-            value=self.form_data.customer_data['service_zip'],
-            key="service_zip_input"
-        )
-
-
-
-def new_service_page():
-    """Main service scheduling page with improved UI organization."""
-    try:
         initialize_session_state()
 
         # Top "Home" Button
@@ -1910,204 +1558,71 @@ def new_service_page():
             st.session_state.deposit_amount = 0.0
             st.session_state.service_notes = ''
             st.session_state.recurrence_pattern = None
-            st.session_state.is_recurring = False
 
-        st.session_state["old_customer_type"] = customer_type
-        # --- End clearing logic ---
+        # Store the customer type for next time
+        st.session_state.old_customer_type = customer_type
 
-        try:
-            if customer_type == "Commercial":
-                st.markdown("### Business Account")
-                scheduler.handle_account_search()
+        # Set form data
+        scheduler.form_data.customer_data['is_commercial'] = (customer_type == "Commercial")
+
+        # Display the appropriate form sections
+        with st.container():
+            if customer_type == "Residential":
+                scheduler.display_customer_form()
+                scheduler.display_service_address_form()
             else:
-                st.markdown("### Customer Information")
-                search_col1, search_col2 = st.columns([2, 1])
-                with search_col1:
-                    customer_name = st.text_input(
-                        "Search by Name, Phone, or Email",
-                        help="Enter customer name, phone number, or email to search",
-                        key="search_customer"
+                scheduler.display_account_form()
+                scheduler.display_account_service_addresses()
+
+        # Service Selection
+        with st.container():
+            if scheduler.display_service_selection():
+                # Service Schedule
+                with st.container():
+                    st.header("📅 Schedule Service")
+                    
+                    # Date selection
+                    min_date = datetime.now().date()
+                    selected_date = st.date_input(
+                        "Service Date",
+                        min_value=min_date,
+                        value=min_date,
+                        key="service_date"
                     )
-                with search_col2:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    new_customer = st.checkbox("New Customer", key="new_customer_checkbox")
-
-                if customer_name and not new_customer:
-                    # Searching existing customers
-                    try:
-                        all_customers_df = fetch_all_customers()
-                        if st.session_state.get('debug_mode'):
-                            st.write("Debug - Fetched customers:", len(all_customers_df))
-
-                        if not all_customers_df.empty:
-                            search_term = customer_name.lower()
-                            if 'FULL_NAME' not in all_customers_df.columns:
-                                all_customers_df['FULL_NAME'] = all_customers_df['FIRST_NAME'] + ' ' + all_customers_df['LAST_NAME']
-
-                            matching_customers_df = all_customers_df[
-                                all_customers_df['FULL_NAME'].str.lower().str.contains(search_term, na=False) |
-                                all_customers_df['PHONE_NUMBER'].str.lower().str.contains(search_term, na=False) |
-                                all_customers_df['EMAIL_ADDRESS'].str.lower().str.contains(search_term, na=False)
-                            ]
-
-                            if not matching_customers_df.empty:
-                                selected_option = st.selectbox(
-                                    "Select Customer",
-                                    options=["Select..."] + matching_customers_df['FULL_NAME'].tolist(),
-                                    key="customer_select_box"
-                                )
-                                if selected_option != "Select...":
-                                    customer = matching_customers_df[
-                                        matching_customers_df['FULL_NAME'] == selected_option
-                                    ].iloc[0]
-                                    # Basic Customer Info
-                                    st.markdown("### Customer Details")
-                                    col1, col2 = st.columns(2)
-                                    with col1:
-                                        scheduler.form_data.customer_data['first_name'] = st.text_input(
-                                            "First Name",
-                                            value=customer['FIRST_NAME'],
-                                            key="edit_first_name"
-                                        )
-                                        scheduler.form_data.customer_data['last_name'] = st.text_input(
-                                            "Last Name",
-                                            value=customer['LAST_NAME'],
-                                            key="edit_last_name"
-                                        )
-                                    with col2:
-                                        scheduler.form_data.customer_data['phone_number'] = st.text_input(
-                                            "Phone",
-                                            value=customer['PHONE_NUMBER'],
-                                            key="edit_phone"
-                                        )
-                                        scheduler.form_data.customer_data['email_address'] = st.text_input(
-                                            "Email",
-                                            value=customer['EMAIL_ADDRESS'],
-                                            key="edit_email"
-                                        )
-
-                                    # Service Address
-                                    st.markdown("### Service Address")
-                                    scheduler.form_data.customer_data['service_address'] = st.text_input(
-                                        "Street Address",
-                                        value=customer['SERVICE_ADDRESS'],
-                                        key="service_address_input"
-                                    )
-                                    service_col1, service_col2 = st.columns(2)
-                                    with service_col1:
-                                        scheduler.form_data.customer_data['service_city'] = st.text_input(
-                                            "City",
-                                            value=customer['SERVICE_CITY'],
-                                            key="service_city_input"
-                                        )
-                                        scheduler.form_data.customer_data['service_state'] = st.text_input(
-                                            "State",
-                                            value=customer['SERVICE_STATE'],
-                                            key="service_state_input"
-                                        )
-                                    with service_col2:
-                                        scheduler.form_data.customer_data['service_zip'] = st.text_input(
-                                            "ZIP Code",
-                                            value=str(customer['SERVICE_ZIP']),
-                                            key="service_zip_input"
-                                        )
-
-                                    # Different Billing?
-                                    different_billing = st.checkbox(
-                                        "Different Billing Address",
-                                        value=False,
-                                        key="different_billing_checkbox"
-                                    )
-                                    scheduler.form_data.customer_data['different_billing'] = different_billing
-                                    if different_billing:
-                                        st.markdown("### Billing Address")
-                                        scheduler.form_data.customer_data['billing_address'] = st.text_input(
-                                            "Street Address",
-                                            value=customer.get('BILLING_ADDRESS', ''),
-                                            key="billing_street"
-                                        )
-                                        bill_col1, bill_col2 = st.columns(2)
-                                        with bill_col1:
-                                            scheduler.form_data.customer_data['billing_city'] = st.text_input(
-                                                "City",
-                                                value=customer.get('BILLING_CITY', ''),
-                                                key="billing_city"
-                                            )
-                                            scheduler.form_data.customer_data['billing_state'] = st.text_input(
-                                                "State",
-                                                value=customer.get('BILLING_STATE', ''),
-                                                key="billing_state"
-                                            )
-                                        with bill_col2:
-                                            scheduler.form_data.customer_data['billing_zip'] = st.text_input(
-                                                "ZIP Code",
-                                                value=str(customer.get('BILLING_ZIP', '')) if pd.notnull(customer.get('BILLING_ZIP')) else "",
-                                                key="billing_zip"
-                                            )
-                                    else:
-                                        scheduler.form_data.customer_data.update({
-                                            'billing_address': scheduler.form_data.customer_data.get('service_address', ''),
-                                            'billing_city': scheduler.form_data.customer_data.get('service_city', ''),
-                                            'billing_state': scheduler.form_data.customer_data.get('service_state', ''),
-                                            'billing_zip': scheduler.form_data.customer_data.get('service_zip', '')
-                                        })
-
-                                    # Update ID and flags
-                                    scheduler.form_data.customer_data['customer_id'] = customer['CUSTOMER_ID']
-                                    scheduler.form_data.customer_data['is_commercial'] = False
-                            else:
-                                st.info("No matching customers found. Please enter customer details below.")
-                                scheduler.display_customer_form()
-                        else:
-                            st.info("No customers found in system. Please enter new customer details.")
-                            scheduler.display_customer_form()
-                    except Exception as e:
-                        st.error(f"Error fetching customers: {str(e)}")
-                        if st.session_state.get('debug_mode'):
-                            st.exception(e)
-                        scheduler.display_customer_form()
-                else:
-                    # If no search term or user clicked "New Customer"
-                    scheduler.display_customer_form()
-
-            # If we have at least a name or an account_id, show service selection
-            show_service_section = (
-                scheduler.form_data.customer_data.get("account_id") is not None or
-                bool(scheduler.form_data.customer_data.get("first_name"))
-            )
-            if show_service_section:
-                st.markdown("### Select Services")
-                services_selected = scheduler.display_service_selection()
-                if services_selected:
-                    st.markdown("### Schedule Service")
-                    schedule_selected = scheduler.process_service_scheduling()
-                    if schedule_selected:
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("📅 Schedule Service", type="primary", key="schedule_service_button"):
-                                try:
+                    
+                    # Get available time slots for selected services
+                    selected_services = scheduler.form_data.service_selection.get('selected_services', [])
+                    if selected_services:
+                        available_slots = get_available_time_slots(selected_date, selected_services)
+                        
+                        if available_slots:
+                            time_options = [slot.strftime('%I:%M %p') for slot in available_slots]
+                            selected_time_str = st.selectbox(
+                                "Available Time Slots",
+                                options=time_options,
+                                key="service_time"
+                            )
+                            
+                            # Convert back to time object
+                            selected_time = datetime.strptime(selected_time_str, '%I:%M %p').time()
+                            
+                            # Store in form data
+                            scheduler.form_data.service_schedule = {
+                                'date': selected_date,
+                                'time': selected_time
+                            }
+                            
+                            # Final submission
+                            col1, col2, col3 = st.columns([1, 1, 1])
+                            with col2:
+                                if st.button("📋 Schedule Service", type="primary", use_container_width=True):
                                     if scheduler.save_service():
                                         st.success("Service scheduled successfully!")
-                                        st.balloons()
-                                        reset_session_state()
                                         st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error saving service: {str(e)}")
-                                    if st.session_state.get('debug_mode'):
-                                        st.exception(e)
-                        with col2:
-                            if st.button("❌ Cancel", type="secondary", key="cancel_service_button"):
-                                reset_session_state()
-                                st.rerun()
-
-        except Exception as e:
-            st.error(f"An error occurred while processing the form: {str(e)}")
-            debug_print(f"Form processing error: {str(e)}")
-            st.error(f"Error details: {type(e).__name__}: {str(e)}")
-            import traceback
-            st.error(f"Traceback: {traceback.format_exc()}")
-            if st.session_state.get('debug_mode'):
-                st.exception(e)
+                        else:
+                            st.warning("No available time slots for the selected date and services. Please choose a different date.")
+                    else:
+                        st.info("Please select services to see available time slots.")
 
     except Exception as e:
         st.error("An unexpected error occurred")
