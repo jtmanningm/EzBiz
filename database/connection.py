@@ -50,14 +50,21 @@ class SnowflakeConnection:
             PRIVATE_KEY_PASSPHRASE = st.secrets.get("snowflake", {}).get("private_key_passphrase", '')
             
             try:
+                # Clean the key data - remove any whitespace/newlines
+                clean_key_data = PRIVATE_KEY_DATA.strip().replace('\n', '').replace('\r', '')
+                
                 # Check if key is in base64 format (no PEM headers)
-                if not PRIVATE_KEY_DATA.startswith('-----BEGIN'):
+                if not clean_key_data.startswith('-----BEGIN'):
                     # Key is in base64 format, decode it directly
-                    return base64.b64decode(PRIVATE_KEY_DATA)
+                    try:
+                        return base64.b64decode(clean_key_data)
+                    except Exception as decode_error:
+                        st.error(f"Failed to decode base64 key: {decode_error}")
+                        raise
                 else:
                     # Key is in PEM format, load and convert
                     private_key = serialization.load_pem_private_key(
-                        PRIVATE_KEY_DATA.encode('utf-8'),
+                        clean_key_data.encode('utf-8'),
                         password=PRIVATE_KEY_PASSPHRASE.encode('utf-8') if PRIVATE_KEY_PASSPHRASE else None,
                         backend=default_backend()
                     )
@@ -77,6 +84,7 @@ class SnowflakeConnection:
                 raise
             except Exception as e:
                 st.error(f"Unexpected error loading private key: {e}")
+                st.error(f"Key starts with: '{PRIVATE_KEY_DATA[:50]}...'")
                 raise
         else:
             # Local development - load from file
