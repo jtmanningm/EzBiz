@@ -314,7 +314,7 @@ def save_service_schedule(
         transaction_id_query = """
         SELECT ID FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION 
         WHERE CUSTOMER_ID = ? AND SERVICE_DATE = ? AND START_TIME = ?
-        ORDER BY CREATED_AT DESC 
+        ORDER BY ID DESC 
         LIMIT 1
         """
         transaction_result = snowflake_conn.execute_query(transaction_id_query, [
