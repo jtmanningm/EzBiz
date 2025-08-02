@@ -124,15 +124,39 @@ class SnowflakeConnection:
         """
         try:
             if not self.session:
+                st.info("Creating new database session...")
                 self.session = self._create_session()
                 if not self.session:
                     raise Exception("Failed to create database session")
-                    
-            result = self.session.sql(query, params).collect() if params else \
-                     self.session.sql(query).collect()
-            return result
+            
+            # Execute query with better error handling
+            if params:
+                result = self.session.sql(query, params).collect()
+            else:
+                result = self.session.sql(query).collect()
+                
+            # Convert Snowpark Row objects to dictionaries
+            if result:
+                return [dict(row.asDict()) for row in result]
+            else:
+                return []
+                
         except Exception as e:
-            st.error(f"{error_msg}: {str(e)}")
+            error_details = f"{error_msg}: {str(e)}"
+            st.error(error_details)
+            
+            # Show more debug info if in debug mode
+            if st.session_state.get('debug_mode', False):
+                st.error(f"Query: {query}")
+                if params:
+                    st.error(f"Parameters: {params}")
+                st.exception(e)
+                
+            # Try to recreate session on connection errors
+            if "connection" in str(e).lower() or "session" in str(e).lower():
+                st.info("Attempting to reconnect to database...")
+                self.session = None  # Force session recreation
+                
             return None
 
 # Create and export the singleton instance

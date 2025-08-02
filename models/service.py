@@ -68,10 +68,25 @@ def fetch_services() -> pd.DataFrame:
     ORDER BY SERVICE_CATEGORY, SERVICE_NAME
     """
     try:
+        debug_print("Fetching services from database...")
         results = snowflake_conn.execute_query(query)
-        return pd.DataFrame(results) if results else pd.DataFrame()
+        debug_print(f"Query returned {len(results) if results else 0} services")
+        
+        if results:
+            df = pd.DataFrame(results)
+            debug_print(f"Created DataFrame with columns: {list(df.columns)}")
+            return df
+        else:
+            debug_print("No services found in database")
+            st.warning("No active services found in the database. Please add services in Settings.")
+            return pd.DataFrame()
+            
     except Exception as e:
-        st.error(f"Error fetching services: {str(e)}")
+        error_msg = f"Error fetching services: {str(e)}"
+        debug_print(error_msg)
+        st.error(error_msg)
+        if st.session_state.get('debug_mode'):
+            st.exception(e)
         return pd.DataFrame()
 
 def fetch_customer_services(customer_id: int) -> pd.DataFrame:
