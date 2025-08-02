@@ -388,11 +388,19 @@ def search_customers(search_term: str) -> pd.DataFrame:
         LAST_NAME,
         PHONE_NUMBER, 
         EMAIL_ADDRESS,
+        PRIMARY_CONTACT_METHOD,
         BILLING_ADDRESS, 
         BILLING_CITY, 
         BILLING_STATE, 
         BILLING_ZIP,
-        PRIMARY_CONTACT_METHOD
+        PRIMARY_STREET,
+        PRIMARY_CITY,
+        PRIMARY_STATE,
+        PRIMARY_ZIP,
+        SERVICE_STREET,
+        SERVICE_CITY,
+        SERVICE_STATE,
+        SERVICE_ZIP
     FROM OPERATIONAL.CARPET.CUSTOMER
     WHERE 
         LOWER(FIRST_NAME || ' ' || LAST_NAME) LIKE LOWER(:1)
