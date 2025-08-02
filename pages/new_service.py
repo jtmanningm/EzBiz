@@ -196,16 +196,27 @@ class ServiceScheduler:
     def save_service_address(self, snowflake_conn: Any, customer_id: int, data: Dict[str, Any], is_primary: bool = False) -> Optional[int]:
         """Save service address (STREET_ADDRESS) to SERVICE_ADDRESSES for the 'service location'."""
         try:
-            # Skip saving service address if no address provided
+            # Check if any service address fields are provided
             service_street = data.get('service_street', '').strip()
-            if not service_street:
-                # No service address provided, skip saving
+            service_city = data.get('service_city', '').strip()
+            service_state = data.get('service_state', '').strip()
+            service_zip = data.get('service_zip', '').strip()
+            
+            # If no service address fields provided at all, skip saving
+            if not any([service_street, service_city, service_state, service_zip]):
+                # No service address provided, skip saving (this is OK)
                 return None
-                
-            service_zip = sanitize_zip_code(data.get('service_zip'))
-            if not service_zip:
-                st.error("Invalid service address ZIP code format. Please enter a 5-digit number.")
-                return False
+            
+            # If some fields provided, validate ZIP if it exists
+            if service_zip:
+                service_zip_clean = sanitize_zip_code(service_zip)
+                if not service_zip_clean:
+                    st.error("Invalid service address ZIP code format. Please enter a 5-digit number.")
+                    return False
+                service_zip = service_zip_clean
+            else:
+                # No ZIP provided, use default
+                service_zip = "00000"
 
             try:
                 customer_id_int = int(customer_id)
@@ -229,9 +240,9 @@ class ServiceScheduler:
             """
             params = [
                 customer_id_int,
-                str(data.get('service_street', '')).strip(),
-                str(data.get('service_city', '')).strip(),
-                str(data.get('service_state', '')).strip(),
+                service_street,
+                service_city,
+                service_state,
                 zip_code_int,
                 square_footage_int,
                 bool(is_primary)
@@ -921,18 +932,27 @@ class ServiceScheduler:
         try:
             snowflake_conn = SnowflakeConnection.get_instance()
             
-            # If no separate billing address, use service address for billing
+            # If no separate billing address, use service address for billing (if available)
             if not customer_data.get('different_billing', False):
-                # Use service address as billing address
-                customer_data['billing_address'] = customer_data.get('service_street', '')
-                customer_data['billing_city'] = customer_data.get('service_city', '')
-                customer_data['billing_state'] = customer_data.get('service_state', '')
-                customer_data['billing_zip'] = customer_data.get('service_zip', '')
+                # Use service address as billing address if service address exists
+                service_street = customer_data.get('service_street', '').strip()
+                if service_street:  # Only use service address if it exists
+                    customer_data['billing_address'] = customer_data.get('service_street', '')
+                    customer_data['billing_city'] = customer_data.get('service_city', '')
+                    customer_data['billing_state'] = customer_data.get('service_state', '')
+                    customer_data['billing_zip'] = customer_data.get('service_zip', '')
+                else:
+                    # No service address provided, use defaults for billing
+                    customer_data['billing_address'] = ''
+                    customer_data['billing_city'] = ''
+                    customer_data['billing_state'] = 'AZ'  # Default state
+                    customer_data['billing_zip'] = '00000'  # Default ZIP
             
+            # Validate billing ZIP if provided, otherwise use default
             billing_zip = sanitize_zip_code(customer_data.get('billing_zip'))
             if not billing_zip:
-                st.error("Invalid billing ZIP code format. Please enter a 5-digit number.")
-                return None
+                # Use default ZIP if none provided or invalid
+                billing_zip = '00000'
             billing_zip_int = int(billing_zip)
 
             clean_data = {
