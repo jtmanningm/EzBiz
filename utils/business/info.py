@@ -32,14 +32,20 @@ def fetch_business_info() -> Dict[str, Any]:
         if not result:
             return {}
 
-        column_names = [
+        # Convert Snowflake Row object to dictionary
+        row = result[0]
+        business_info = {}
+        for column in [
             "BUSINESS_ID", "BUSINESS_NAME", "STREET_ADDRESS", "CITY", "STATE",
             "ZIP_CODE", "PHONE_NUMBER", "EMAIL_ADDRESS", "WEBSITE",
             "OPERATING_HOURS_START", "OPERATING_HOURS_END",
             "WEEKEND_OPERATING_HOURS_START", "WEEKEND_OPERATING_HOURS_END",
             "ACTIVE_STATUS", "MODIFIED_DATE"
-        ]
-        business_info = {column: result[0][i] for i, column in enumerate(column_names)}
+        ]:
+            try:
+                business_info[column] = getattr(row, column, None)
+            except AttributeError:
+                business_info[column] = None
 
         # Clean each field
         for key in business_info:

@@ -196,10 +196,16 @@ class ServiceScheduler:
     def save_service_address(self, snowflake_conn: Any, customer_id: int, data: Dict[str, Any], is_primary: bool = False) -> Optional[int]:
         """Save service address (STREET_ADDRESS) to SERVICE_ADDRESSES for the 'service location'."""
         try:
+            # Skip saving service address if no address provided
+            service_street = data.get('service_street', '').strip()
+            if not service_street:
+                # No service address provided, skip saving
+                return None
+                
             service_zip = sanitize_zip_code(data.get('service_zip'))
             if not service_zip:
                 st.error("Invalid service address ZIP code format. Please enter a 5-digit number.")
-                return None
+                return False
 
             try:
                 customer_id_int = int(customer_id)
@@ -223,7 +229,7 @@ class ServiceScheduler:
             """
             params = [
                 customer_id_int,
-                str(data.get('service_address', '')).strip(),
+                str(data.get('service_street', '')).strip(),
                 str(data.get('service_city', '')).strip(),
                 str(data.get('service_state', '')).strip(),
                 zip_code_int,
@@ -242,7 +248,7 @@ class ServiceScheduler:
                 SELECT ADDRESS_ID 
                 FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES 
                 WHERE CUSTOMER_ID = ? 
-                ORDER BY CREATED_AT DESC 
+                ORDER BY ADDRESS_ID DESC 
                 LIMIT 1
                 """,
                 [customer_id_int]
@@ -253,7 +259,7 @@ class ServiceScheduler:
             st.error(f"Error saving service address: {str(e)}")
             if st.session_state.get('debug_mode'):
                 st.exception(e)
-            return None
+            return False
 
     def handle_account_search(self) -> None:
         """Process business account search and selection."""
@@ -996,7 +1002,7 @@ class ServiceScheduler:
                     WHERE FIRST_NAME = ? 
                     AND LAST_NAME = ? 
                     AND PHONE_NUMBER = ?
-                    ORDER BY CREATED_AT DESC 
+                    ORDER BY ADDRESS_ID DESC 
                     LIMIT 1
                     """,
                     [clean_data['first_name'], clean_data['last_name'], clean_data['phone_number']]
@@ -1012,7 +1018,9 @@ class ServiceScheduler:
                     data=customer_data,
                     is_primary=is_primary
                 )
-                if not address_id:
+                # address_id can be None if no service address was provided (which is now optional)
+                # Only show error if address_id is False (indicating a save failure)
+                if address_id is False:
                     st.error("Failed to save service address")
                     return None
                 return saved_customer_id
@@ -1285,14 +1293,14 @@ class ServiceScheduler:
         """Display service address form section."""
         st.subheader("Service Address")
         
-        # Service address fields (now required fields)
+        # Service address fields (optional)
         self.form_data.customer_data['service_street'] = st.text_input(
-            "Service Street Address",
+            "Service Street Address (Optional)",
             value=self.form_data.customer_data.get('service_street', ''),
             key="service_street_input"
         )
         self.form_data.customer_data['service_city'] = st.text_input(
-            "Service City",
+            "Service City (Optional)",
             value=self.form_data.customer_data.get('service_city', ''),
             key="service_city_input"
         )
@@ -1307,14 +1315,14 @@ class ServiceScheduler:
                 state_index = 0
                 
             self.form_data.customer_data['service_state'] = st.selectbox(
-                "Service State",
+                "Service State (Optional)",
                 options=states,
                 index=state_index,
                 key="service_state_select"
             )
         with col2:
             self.form_data.customer_data['service_zip'] = st.text_input(
-                "Service ZIP Code",
+                "Service ZIP Code (Optional)",
                 value=self.form_data.customer_data.get('service_zip', ''),
                 key="service_zip_input"
             )
@@ -1499,19 +1507,10 @@ class ServiceScheduler:
             if email and not validate_email(email):
                 errors.append("Please enter a valid email address")
             
-            # Service address validation (required)
-            if not customer_data.get('service_street'):
-                errors.append("Service address street is required")
-            if not customer_data.get('service_city'):
-                errors.append("Service address city is required")
-            if not customer_data.get('service_state'):
-                errors.append("Service address state is required")
-            if not customer_data.get('service_zip'):
-                errors.append("Service address ZIP code is required")
-            else:
-                zip_code = customer_data.get('service_zip', '')
-                if not validate_zip_code(zip_code):
-                    errors.append("Please enter a valid service address ZIP code")
+            # Service address validation (optional, but validate if provided)
+            zip_code = customer_data.get('service_zip', '')
+            if zip_code and not validate_zip_code(zip_code):
+                errors.append("Please enter a valid service address ZIP code")
             
             # Billing address validation (if different billing is selected)
             if customer_data.get('different_billing', False):
@@ -1628,7 +1627,7 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
             SELECT ADDRESS_ID 
             FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES 
             WHERE ACCOUNT_ID = ? 
-            ORDER BY CREATED_AT DESC 
+            ORDER BY ADDRESS_ID DESC 
             LIMIT 1
             """,
             [account_id]

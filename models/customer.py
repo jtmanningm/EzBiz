@@ -221,7 +221,7 @@ def save_service_address(snowflake_conn: Any, customer_id: int, data: Dict[str, 
             SELECT ADDRESS_ID 
             FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES 
             WHERE CUSTOMER_ID = ? 
-            ORDER BY CREATED_AT DESC 
+            ORDER BY ADDRESS_ID DESC 
             LIMIT 1
             """,
             [customer_id]
@@ -344,7 +344,7 @@ def save_customer(data: Dict[str, Any], customer_id: Optional[int] = None) -> Op
                 WHERE FIRST_NAME = ? 
                 AND LAST_NAME = ? 
                 AND PHONE_NUMBER = ?
-                ORDER BY CREATED_AT DESC 
+                ORDER BY ADDRESS_ID DESC 
                 LIMIT 1
                 """,
                 [clean_data['first_name'], clean_data['last_name'], clean_data['phone_number']]

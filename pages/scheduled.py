@@ -311,7 +311,7 @@ def scheduled_services_page():
                 ZIP_CODE,
                 ROW_NUMBER() OVER (PARTITION BY CUSTOMER_ID ORDER BY 
                     CASE WHEN IS_PRIMARY_SERVICE = TRUE THEN 0 ELSE 1 END,
-                    CREATED_AT DESC
+                    ADDRESS_ID DESC
                 ) as rn
             FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
             WHERE CUSTOMER_ID IS NOT NULL AND ACCOUNT_ID IS NULL
@@ -325,7 +325,7 @@ def scheduled_services_page():
                 ZIP_CODE,
                 ROW_NUMBER() OVER (PARTITION BY ACCOUNT_ID ORDER BY 
                     CASE WHEN IS_PRIMARY_SERVICE = TRUE THEN 0 ELSE 1 END,
-                    CREATED_AT DESC
+                    ADDRESS_ID DESC
                 ) as rn
             FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
             WHERE ACCOUNT_ID IS NOT NULL
