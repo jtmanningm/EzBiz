@@ -1515,11 +1515,14 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
 
     def display_service_selection(self) -> bool:
         """Display service selection and pricing section."""
-        services_df = fetch_services()
-        if services_df.empty:
-            st.error("No services available")
-            return False
         try:
+            debug_print("Starting service selection display...")
+            services_df = fetch_services()
+            debug_print(f"Services DataFrame shape: {services_df.shape if not services_df.empty else 'empty'}")
+            
+            if services_df.empty:
+                st.error("No services available")
+                return False
             if 'service_costs' not in st.session_state:
                 st.session_state.service_costs = {}
             
@@ -1562,7 +1565,11 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
                         selected_services.append(new_service_name)
                         st.session_state.selected_services = selected_services
                     # Clear the services cache so it refreshes with the new service
-                    fetch_services.clear()  # Clear Streamlit cache for fetch_services function
+                    try:
+                        fetch_services.clear()  # Clear Streamlit cache for fetch_services function
+                    except Exception as cache_error:
+                        debug_print(f"Cache clear error (non-critical): {cache_error}")
+                        # This is not critical, continue execution
                     st.success(f"Service '{new_service_name}' created and added to selection!")
                     st.rerun()
                 
@@ -1664,6 +1671,18 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
             return False
         except Exception as e:
             st.error(f"Error in service selection: {str(e)}")
+            st.error(f"Error type: {type(e).__name__}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
+            
+            # Try to identify the specific issue
+            if "SERVICE_NAME" in str(e):
+                st.error("Issue with service name column - check database schema")
+            elif "COST" in str(e):
+                st.error("Issue with service cost column - check database schema")
+            elif "clear" in str(e):
+                st.error("Issue with cache clearing - this is non-critical")
+                
             if st.session_state.get('debug_mode'):
                 st.exception(e)
             return False
@@ -1903,8 +1922,11 @@ def new_service_page():
                                 st.rerun()
 
         except Exception as e:
-            st.error("An error occurred while processing the form")
+            st.error(f"An error occurred while processing the form: {str(e)}")
             debug_print(f"Form processing error: {str(e)}")
+            st.error(f"Error details: {type(e).__name__}: {str(e)}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             if st.session_state.get('debug_mode'):
                 st.exception(e)
 
