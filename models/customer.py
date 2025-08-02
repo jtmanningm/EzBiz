@@ -383,29 +383,34 @@ def search_customers(search_term: str) -> pd.DataFrame:
     """Search customers by name, phone, or email"""
     query = """
     SELECT 
-        CUSTOMER_ID, 
-        FIRST_NAME, 
-        LAST_NAME,
-        PHONE_NUMBER, 
-        EMAIL_ADDRESS,
-        PRIMARY_CONTACT_METHOD,
-        BILLING_ADDRESS, 
-        BILLING_CITY, 
-        BILLING_STATE, 
-        BILLING_ZIP,
-        PRIMARY_STREET,
-        PRIMARY_CITY,
-        PRIMARY_STATE,
-        PRIMARY_ZIP,
-        SERVICE_STREET,
-        SERVICE_CITY,
-        SERVICE_STATE,
-        SERVICE_ZIP
-    FROM OPERATIONAL.CARPET.CUSTOMER
+        C.CUSTOMER_ID, 
+        C.FIRST_NAME, 
+        C.LAST_NAME,
+        C.PHONE_NUMBER, 
+        C.EMAIL_ADDRESS,
+        C.PRIMARY_CONTACT_METHOD,
+        C.BILLING_ADDRESS, 
+        C.BILLING_CITY, 
+        C.BILLING_STATE, 
+        C.BILLING_ZIP,
+        -- Get primary service address if available
+        SA.STREET_ADDRESS as PRIMARY_STREET,
+        SA.CITY as PRIMARY_CITY,
+        SA.STATE as PRIMARY_STATE,
+        SA.ZIP_CODE as PRIMARY_ZIP,
+        -- For service address, use the same for now (can be updated later)
+        SA.STREET_ADDRESS as SERVICE_STREET,
+        SA.CITY as SERVICE_CITY,
+        SA.STATE as SERVICE_STATE,
+        SA.ZIP_CODE as SERVICE_ZIP
+    FROM OPERATIONAL.CARPET.CUSTOMER C
+    LEFT JOIN OPERATIONAL.CARPET.SERVICE_ADDRESSES SA 
+        ON C.CUSTOMER_ID = SA.CUSTOMER_ID
+        AND (SA.IS_PRIMARY_SERVICE = TRUE OR SA.IS_PRIMARY_SERVICE IS NULL)
     WHERE 
-        LOWER(FIRST_NAME || ' ' || LAST_NAME) LIKE LOWER(:1)
-        OR PHONE_NUMBER LIKE :2
-        OR LOWER(EMAIL_ADDRESS) LIKE LOWER(:3)
+        LOWER(C.FIRST_NAME || ' ' || C.LAST_NAME) LIKE LOWER(:1)
+        OR C.PHONE_NUMBER LIKE :2
+        OR LOWER(C.EMAIL_ADDRESS) LIKE LOWER(:3)
     """
     
     snowflake_conn = SnowflakeConnection.get_instance()
