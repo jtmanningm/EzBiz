@@ -880,6 +880,15 @@ class ServiceScheduler:
         """Save or update a residential customer's info + service address in SERVICE_ADDRESSES."""
         try:
             snowflake_conn = SnowflakeConnection.get_instance()
+            
+            # If no separate billing address, use service address for billing
+            if not customer_data.get('different_billing', False):
+                # Use service address as billing address
+                customer_data['billing_address'] = customer_data.get('service_street', '')
+                customer_data['billing_city'] = customer_data.get('service_city', '')
+                customer_data['billing_state'] = customer_data.get('service_state', '')
+                customer_data['billing_zip'] = customer_data.get('service_zip', '')
+            
             billing_zip = sanitize_zip_code(customer_data.get('billing_zip'))
             if not billing_zip:
                 st.error("Invalid billing ZIP code format. Please enter a 5-digit number.")
@@ -1470,19 +1479,34 @@ class ServiceScheduler:
             if email and not validate_email(email):
                 errors.append("Please enter a valid email address")
             
-            # Address validation
-            if not customer_data.get('primary_street'):
-                errors.append("Primary address street is required")
-            if not customer_data.get('primary_city'):
-                errors.append("Primary address city is required")
-            if not customer_data.get('primary_state'):
-                errors.append("Primary address state is required")
-            if not customer_data.get('primary_zip'):
-                errors.append("Primary address ZIP code is required")
+            # Service address validation (required)
+            if not customer_data.get('service_street'):
+                errors.append("Service address street is required")
+            if not customer_data.get('service_city'):
+                errors.append("Service address city is required")
+            if not customer_data.get('service_state'):
+                errors.append("Service address state is required")
+            if not customer_data.get('service_zip'):
+                errors.append("Service address ZIP code is required")
             else:
-                zip_code = customer_data.get('primary_zip', '')
+                zip_code = customer_data.get('service_zip', '')
                 if not validate_zip_code(zip_code):
-                    errors.append("Please enter a valid ZIP code")
+                    errors.append("Please enter a valid service address ZIP code")
+            
+            # Billing address validation (if different billing is selected)
+            if customer_data.get('different_billing', False):
+                if not customer_data.get('billing_address'):
+                    errors.append("Billing address street is required when different from service address")
+                if not customer_data.get('billing_city'):
+                    errors.append("Billing address city is required when different from service address")
+                if not customer_data.get('billing_state'):
+                    errors.append("Billing address state is required when different from service address")
+                if not customer_data.get('billing_zip'):
+                    errors.append("Billing address ZIP code is required when different from service address")
+                else:
+                    billing_zip = customer_data.get('billing_zip', '')
+                    if not validate_zip_code(billing_zip):
+                        errors.append("Please enter a valid billing address ZIP code")
             
             return errors
             
