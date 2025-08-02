@@ -133,7 +133,21 @@ def transaction_details_page():
     # Display base cost information
     st.markdown("### Services")
     base_cost = safe_get_float(safe_get_row_value(transaction, 'BASE_SERVICE_COST', 0))
-    primary_service_name = safe_get_row_value(transaction, 'PRIMARY_SERVICE_NAME', 'Unknown Service')
+    
+    # If base cost is 0, try using AMOUNT field as fallback
+    if base_cost == 0:
+        base_cost = safe_get_float(safe_get_row_value(transaction, 'AMOUNT', 0))
+    primary_service_name = safe_get_row_value(transaction, 'PRIMARY_SERVICE_NAME', None)
+    
+    # If no primary service name from join, try getting from SERVICE_NAME field
+    if not primary_service_name:
+        primary_service_name = safe_get_row_value(transaction, 'SERVICE_NAME', 'Unknown Service')
+    
+    # Debug information if in debug mode
+    if st.session_state.get('debug_mode'):
+        st.write("Debug - Transaction fields:")
+        st.json({k: str(v) for k, v in transaction.items() if 'SERVICE' in k.upper()})
+    
     st.write(f"Primary Service: {primary_service_name} - ${base_cost:.2f}")
     
     total_cost = base_cost
