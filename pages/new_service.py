@@ -843,9 +843,14 @@ class ServiceScheduler:
                 )
                 self.form_data.service_schedule['date'] = service_date
             with col2:
+                # Ensure we have selected services or use default
+                selected_services = self.form_data.service_selection.get('selected_services', [])
+                if not selected_services:
+                    selected_services = ["Standard Service"]  # Default service
+                    
                 available_slots = get_available_time_slots(
                     service_date,
-                    self.form_data.service_selection['selected_services']
+                    selected_services
                 )
                 if not available_slots:
                     st.warning(f"No available time slots for {service_date.strftime('%Y-%m-%d')}.")
@@ -861,7 +866,7 @@ class ServiceScheduler:
                     available, message = check_service_availability(
                         service_date,
                         service_time,
-                        self.form_data.service_selection['selected_services']
+                        selected_services
                     )
                     if available:
                         self.form_data.service_schedule['time'] = service_time
@@ -1747,7 +1752,10 @@ def new_service_page():
                             )
                             
                             # Convert back to time object
-                            selected_time = datetime.strptime(selected_time_str, '%I:%M %p').time()
+                            if selected_time_str:
+                                selected_time = datetime.strptime(selected_time_str, '%I:%M %p').time()
+                            else:
+                                selected_time = None
                         else:
                             st.warning("No available time slots for the selected date. Please choose a different date.")
                             selected_time = None
