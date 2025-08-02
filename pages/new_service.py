@@ -1714,8 +1714,13 @@ def new_service_page():
                     )
                     
                     # Get available time slots for selected services
-                    selected_services = scheduler.form_data.service_selection.get('selected_services', [])
-                    if selected_services:
+                    try:
+                        selected_services = scheduler.form_data.service_selection.get('selected_services', [])
+                        
+                        # If no services selected yet, use default service for time slot calculation
+                        if not selected_services:
+                            selected_services = ["Standard Service"]
+                        
                         available_slots = get_available_time_slots(selected_date, selected_services)
                         
                         if available_slots:
@@ -1728,24 +1733,31 @@ def new_service_page():
                             
                             # Convert back to time object
                             selected_time = datetime.strptime(selected_time_str, '%I:%M %p').time()
-                            
-                            # Store in form data
-                            scheduler.form_data.service_schedule = {
-                                'date': selected_date,
-                                'time': selected_time
-                            }
-                            
-                            # Final submission
-                            col1, col2, col3 = st.columns([1, 1, 1])
-                            with col2:
-                                if st.button("📋 Schedule Service", type="primary", use_container_width=True):
-                                    if scheduler.save_service():
-                                        st.success("Service scheduled successfully!")
-                                        st.rerun()
                         else:
-                            st.warning("No available time slots for the selected date and services. Please choose a different date.")
+                            st.warning("No available time slots for the selected date. Please choose a different date.")
+                            selected_time = None
+                    except Exception as e:
+                        st.error(f"Error loading time slots: {str(e)}")
+                        if st.session_state.get('debug_mode'):
+                            st.exception(e)
+                        selected_time = None
+                    
+                    # Store in form data and show submission button only if we have a valid time
+                    if selected_time:
+                        scheduler.form_data.service_schedule = {
+                            'date': selected_date,
+                            'time': selected_time
+                        }
+                        
+                        # Final submission
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        with col2:
+                            if st.button("📋 Schedule Service", type="primary", use_container_width=True):
+                                if scheduler.save_service():
+                                    st.success("Service scheduled successfully!")
+                                    st.rerun()
                     else:
-                        st.info("Please select services to see available time slots.")
+                        st.info("Please select services first to see available time slots.")
 
     except Exception as e:
         st.error("An unexpected error occurred")
