@@ -147,6 +147,10 @@ def transaction_details_page():
     if st.session_state.get('debug_mode'):
         st.write("Debug - Transaction fields:")
         st.json({k: str(v) for k, v in transaction.items() if 'SERVICE' in k.upper()})
+        st.write("Debug - Selected service from session:")
+        if 'selected_service' in st.session_state:
+            st.json({k: str(v) for k, v in st.session_state.selected_service.items()})
+        st.write(f"Debug - Using transaction_id: {transaction_id}")
     
     st.write(f"Primary Service: {primary_service_name} - ${base_cost:.2f}")
     

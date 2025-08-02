@@ -71,6 +71,7 @@ def handle_service_start(snowflake_conn: SnowflakeConnection, row: pd.Series) ->
     
     # Store service information in session state
     st.session_state['selected_service'] = {
+        'ID': transaction_id,  # Add ID field
         'TRANSACTION_ID': transaction_id,
         'SERVICE_ID': safe_get_int(row['SERVICE_ID']),
         'CUSTOMER_OR_ACCOUNT_ID': (
