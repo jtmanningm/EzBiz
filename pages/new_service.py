@@ -1100,6 +1100,180 @@ class ServiceScheduler:
                     st.session_state["account_service_addresses"] = []
                     st.experimental_rerun()
 
+    def display_service_selection(self) -> bool:
+        """Display service selection and pricing section."""
+        try:
+            debug_print("Starting service selection display...")
+            services_df = fetch_services()
+            debug_print(f"Services DataFrame shape: {services_df.shape if not services_df.empty else 'empty'}")
+            
+            if services_df.empty:
+                st.error("No services available")
+                return False
+            if 'service_costs' not in st.session_state:
+                st.session_state.service_costs = {}
+            
+            # Initialize create service state
+            if 'show_create_service' not in st.session_state:
+                st.session_state.show_create_service = False
+
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                selected_services = st.multiselect(
+                    "Select Services",
+                    options=services_df['SERVICE_NAME'].tolist(),
+                    default=st.session_state.get('selected_services', []),
+                    key="services_select"
+                )
+            
+            with col2:
+                if st.button("➕ Create New Service", use_container_width=True, help="Create a new service type if it's not in the list above"):
+                    st.session_state.show_create_service = True
+                    st.rerun()
+            
+            # Handle create new service
+            if st.session_state.show_create_service:
+                st.markdown("---")
+                st.info("💡 **Tip:** Use this to create a new service type that doesn't exist in the list above. The new service will be available for future bookings.")
+                from utils.service_utils import display_create_service_form
+                
+                create_result = display_create_service_form(key_suffix="new_service_page")
+                
+                if create_result == "cancelled":
+                    st.session_state.show_create_service = False
+                    st.rerun()
+                elif create_result:
+                    # Service was created successfully
+                    st.session_state.show_create_service = False
+                    # Add the new service to selected services
+                    new_service_name = create_result['service_name']
+                    if new_service_name not in selected_services:
+                        selected_services.append(new_service_name)
+                        st.session_state.selected_services = selected_services
+                    # Clear the services cache so it refreshes with the new service
+                    try:
+                        fetch_services.clear()  # Clear Streamlit cache for fetch_services function
+                    except Exception as cache_error:
+                        debug_print(f"Cache clear error (non-critical): {cache_error}")
+                        # This is not critical, continue execution
+                    st.success(f"Service '{new_service_name}' created and added to selection!")
+                    st.rerun()
+                
+                # Don't continue with the rest of the form while creating service
+                return False
+            
+            st.session_state.selected_services = selected_services
+            self.form_data.service_selection['selected_services'] = selected_services
+
+            if selected_services:
+                # Re-fetch services to ensure newly created services are included
+                current_services_df = fetch_services()
+                try:
+                    total_cost = sum(
+                        float(current_services_df.loc[current_services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
+                        for service in selected_services
+                    )
+                except (IndexError, KeyError):
+                    # If a service is not found, re-fetch again (race condition handling)
+                    fetch_services.clear()
+                    current_services_df = fetch_services()
+                    total_cost = sum(
+                        float(current_services_df.loc[current_services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
+                        for service in selected_services
+                    )
+                st.write(f"Total Cost: ${total_cost:.2f}")
+
+                # Recurring Service
+                if 'is_recurring' not in st.session_state:
+                    st.session_state.is_recurring = False
+                is_recurring = st.checkbox(
+                    "Recurring Service",
+                    key="recurring_checkbox",
+                    value=st.session_state.is_recurring
+                )
+                st.session_state.is_recurring = is_recurring
+                self.form_data.service_selection['is_recurring'] = is_recurring
+
+                if 'recurrence_pattern' not in st.session_state or st.session_state.recurrence_pattern is None:
+                    st.session_state.recurrence_pattern = "Weekly"
+
+                if is_recurring:
+                    current_pattern = st.session_state.recurrence_pattern or "Weekly"
+                    pattern_options = ["Weekly", "Bi-Weekly", "Monthly"]
+                    try:
+                        pattern_index = pattern_options.index(current_pattern)
+                    except ValueError:
+                        pattern_index = 0
+                    recurrence_pattern = st.selectbox(
+                        "Recurrence Pattern",
+                        options=pattern_options,
+                        index=pattern_index,
+                        key="recurrence_select"
+                    )
+                    st.session_state.recurrence_pattern = recurrence_pattern
+                    self.form_data.service_selection['recurrence_pattern'] = recurrence_pattern
+                else:
+                    self.form_data.service_selection['recurrence_pattern'] = None
+
+                # Deposit
+                if 'deposit_amount' not in st.session_state:
+                    st.session_state.deposit_amount = 0.0
+                add_deposit = st.checkbox("Add Deposit", key="deposit_checkbox")
+                deposit_amount = 0.0
+                if add_deposit:
+                    if is_recurring:
+                        st.info("For recurring services, deposit only applies to the first service.")
+                    deposit_amount = st.number_input(
+                        "Deposit Amount",
+                        min_value=0.0,
+                        max_value=total_cost,
+                        value=st.session_state.deposit_amount,
+                        step=5.0,
+                        key="deposit_input"
+                    )
+                    st.session_state.deposit_amount = deposit_amount
+                    st.write(f"Remaining Balance: ${total_cost - deposit_amount:.2f}")
+                    if is_recurring:
+                        st.write(f"Future Service Cost: ${total_cost:.2f}")
+
+                # Notes
+                if 'service_notes' not in st.session_state:
+                    st.session_state.service_notes = ''
+                notes = st.text_area(
+                    "Additional Instructions or Requirements",
+                    value=st.session_state.service_notes,
+                    key="notes_input"
+                )
+                st.session_state.service_notes = notes
+
+                self.form_data.service_selection.update({
+                    'selected_services': selected_services,
+                    'is_recurring': is_recurring,
+                    'recurrence_pattern': st.session_state.recurrence_pattern if is_recurring else None,
+                    'deposit_amount': deposit_amount,
+                    'notes': notes
+                })
+                return True
+            return False
+        except Exception as e:
+            st.error(f"Error in service selection: {str(e)}")
+            st.error(f"Error type: {type(e).__name__}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
+            
+            # Try to identify the specific issue
+            if "SERVICE_NAME" in str(e):
+                st.error("Issue with service name column - check database schema")
+            elif "COST" in str(e):
+                st.error("Issue with service cost column - check database schema")
+            elif "clear" in str(e):
+                st.error("Issue with cache clearing - this is non-critical")
+                
+            if st.session_state.get('debug_mode'):
+                st.exception(e)
+            return False
+
 def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dict[str, Any]) -> Optional[int]:
     """Save a service address for a commercial account.
     Although the SERVICE_ADDRESSES table uses CUSTOMER_ID, for commercial accounts we pass the account_id.
@@ -1513,179 +1687,6 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
             key="service_zip_input"
         )
 
-    def display_service_selection(self) -> bool:
-        """Display service selection and pricing section."""
-        try:
-            debug_print("Starting service selection display...")
-            services_df = fetch_services()
-            debug_print(f"Services DataFrame shape: {services_df.shape if not services_df.empty else 'empty'}")
-            
-            if services_df.empty:
-                st.error("No services available")
-                return False
-            if 'service_costs' not in st.session_state:
-                st.session_state.service_costs = {}
-            
-            # Initialize create service state
-            if 'show_create_service' not in st.session_state:
-                st.session_state.show_create_service = False
-
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                selected_services = st.multiselect(
-                    "Select Services",
-                    options=services_df['SERVICE_NAME'].tolist(),
-                    default=st.session_state.get('selected_services', []),
-                    key="services_select"
-                )
-            
-            with col2:
-                if st.button("➕ Create New Service", use_container_width=True, help="Create a new service type if it's not in the list above"):
-                    st.session_state.show_create_service = True
-                    st.rerun()
-            
-            # Handle create new service
-            if st.session_state.show_create_service:
-                st.markdown("---")
-                st.info("💡 **Tip:** Use this to create a new service type that doesn't exist in the list above. The new service will be available for future bookings.")
-                from utils.service_utils import display_create_service_form
-                
-                create_result = display_create_service_form(key_suffix="new_service_page")
-                
-                if create_result == "cancelled":
-                    st.session_state.show_create_service = False
-                    st.rerun()
-                elif create_result:
-                    # Service was created successfully
-                    st.session_state.show_create_service = False
-                    # Add the new service to selected services
-                    new_service_name = create_result['service_name']
-                    if new_service_name not in selected_services:
-                        selected_services.append(new_service_name)
-                        st.session_state.selected_services = selected_services
-                    # Clear the services cache so it refreshes with the new service
-                    try:
-                        fetch_services.clear()  # Clear Streamlit cache for fetch_services function
-                    except Exception as cache_error:
-                        debug_print(f"Cache clear error (non-critical): {cache_error}")
-                        # This is not critical, continue execution
-                    st.success(f"Service '{new_service_name}' created and added to selection!")
-                    st.rerun()
-                
-                # Don't continue with the rest of the form while creating service
-                return False
-            
-            st.session_state.selected_services = selected_services
-            self.form_data.service_selection['selected_services'] = selected_services
-
-            if selected_services:
-                # Re-fetch services to ensure newly created services are included
-                current_services_df = fetch_services()
-                try:
-                    total_cost = sum(
-                        float(current_services_df.loc[current_services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
-                        for service in selected_services
-                    )
-                except (IndexError, KeyError):
-                    # If a service is not found, re-fetch again (race condition handling)
-                    fetch_services.clear()
-                    current_services_df = fetch_services()
-                    total_cost = sum(
-                        float(current_services_df.loc[current_services_df['SERVICE_NAME'] == service, 'COST'].iloc[0])
-                        for service in selected_services
-                    )
-                st.write(f"Total Cost: ${total_cost:.2f}")
-
-                # Recurring Service
-                if 'is_recurring' not in st.session_state:
-                    st.session_state.is_recurring = False
-                is_recurring = st.checkbox(
-                    "Recurring Service",
-                    key="recurring_checkbox",
-                    value=st.session_state.is_recurring
-                )
-                st.session_state.is_recurring = is_recurring
-                self.form_data.service_selection['is_recurring'] = is_recurring
-
-                if 'recurrence_pattern' not in st.session_state or st.session_state.recurrence_pattern is None:
-                    st.session_state.recurrence_pattern = "Weekly"
-
-                if is_recurring:
-                    current_pattern = st.session_state.recurrence_pattern or "Weekly"
-                    pattern_options = ["Weekly", "Bi-Weekly", "Monthly"]
-                    try:
-                        pattern_index = pattern_options.index(current_pattern)
-                    except ValueError:
-                        pattern_index = 0
-                    recurrence_pattern = st.selectbox(
-                        "Recurrence Pattern",
-                        options=pattern_options,
-                        index=pattern_index,
-                        key="recurrence_select"
-                    )
-                    st.session_state.recurrence_pattern = recurrence_pattern
-                    self.form_data.service_selection['recurrence_pattern'] = recurrence_pattern
-                else:
-                    self.form_data.service_selection['recurrence_pattern'] = None
-
-                # Deposit
-                if 'deposit_amount' not in st.session_state:
-                    st.session_state.deposit_amount = 0.0
-                add_deposit = st.checkbox("Add Deposit", key="deposit_checkbox")
-                deposit_amount = 0.0
-                if add_deposit:
-                    if is_recurring:
-                        st.info("For recurring services, deposit only applies to the first service.")
-                    deposit_amount = st.number_input(
-                        "Deposit Amount",
-                        min_value=0.0,
-                        max_value=total_cost,
-                        value=st.session_state.deposit_amount,
-                        step=5.0,
-                        key="deposit_input"
-                    )
-                    st.session_state.deposit_amount = deposit_amount
-                    st.write(f"Remaining Balance: ${total_cost - deposit_amount:.2f}")
-                    if is_recurring:
-                        st.write(f"Future Service Cost: ${total_cost:.2f}")
-
-                # Notes
-                if 'service_notes' not in st.session_state:
-                    st.session_state.service_notes = ''
-                notes = st.text_area(
-                    "Additional Instructions or Requirements",
-                    value=st.session_state.service_notes,
-                    key="notes_input"
-                )
-                st.session_state.service_notes = notes
-
-                self.form_data.service_selection.update({
-                    'selected_services': selected_services,
-                    'is_recurring': is_recurring,
-                    'recurrence_pattern': st.session_state.recurrence_pattern if is_recurring else None,
-                    'deposit_amount': deposit_amount,
-                    'notes': notes
-                })
-                return True
-            return False
-        except Exception as e:
-            st.error(f"Error in service selection: {str(e)}")
-            st.error(f"Error type: {type(e).__name__}")
-            import traceback
-            st.error(f"Traceback: {traceback.format_exc()}")
-            
-            # Try to identify the specific issue
-            if "SERVICE_NAME" in str(e):
-                st.error("Issue with service name column - check database schema")
-            elif "COST" in str(e):
-                st.error("Issue with service cost column - check database schema")
-            elif "clear" in str(e):
-                st.error("Issue with cache clearing - this is non-critical")
-                
-            if st.session_state.get('debug_mode'):
-                st.exception(e)
-            return False
 
 
 def new_service_page():
