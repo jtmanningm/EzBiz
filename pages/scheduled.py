@@ -147,6 +147,12 @@ def render_service_card(row: pd.Series, snowflake_conn: SnowflakeConnection) -> 
             }.get(row['STATUS'], '❓')
             
             service_info = f"{status_icon} {row['SERVICE_NAME']} - {row['CUSTOMER_NAME']}"
+            
+            # Add service cost display
+            service_cost = safe_get_float(row['BASE_SERVICE_COST'])
+            if service_cost > 0:
+                service_info += f"\n💵 Service Cost: {format_currency(service_cost)}"
+            
             if row['STATUS'] == 'CANCELLED':
                 service_info += " (CANCELLED - Can be restarted)"
             
@@ -332,8 +338,8 @@ def scheduled_services_page():
         )
         SELECT DISTINCT
             ST.ID as TRANSACTION_ID,
-            S.SERVICE_ID,
-            S.SERVICE_NAME,
+            ST.SERVICE_ID,
+            COALESCE(ST.SERVICE_NAME, S.SERVICE_NAME, 'Unknown Service') as SERVICE_NAME,
             ST.CUSTOMER_ID,
             ST.ACCOUNT_ID,
             ST.DEPOSIT,
@@ -349,7 +355,7 @@ def scheduled_services_page():
             ST.COMMENTS,
             ST.IS_RECURRING,
             ST.RECURRENCE_PATTERN,
-            COALESCE(ST.BASE_SERVICE_COST, ST.AMOUNT) as BASE_SERVICE_COST,  -- Use AMOUNT if BASE_SERVICE_COST is null
+            COALESCE(ST.BASE_SERVICE_COST, ST.AMOUNT, S.COST, 0) as BASE_SERVICE_COST,
             COALESCE(DA.STREET_ADDRESS, RCA.STREET_ADDRESS, RAA.STREET_ADDRESS) as SERVICE_ADDRESS,
             COALESCE(DA.CITY, RCA.CITY, RAA.CITY) as SERVICE_CITY,
             COALESCE(DA.STATE, RCA.STATE, RAA.STATE) as SERVICE_STATE,

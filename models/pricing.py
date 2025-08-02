@@ -47,10 +47,30 @@ def get_active_pricing_strategy() -> Optional[PricingStrategy]:
                 created_at=strategy['CREATED_AT'],
                 modified_at=strategy['MODIFIED_AT']
             )
+        else:
+            # If no active strategy found, create and return default fixed price strategy
+            ensure_default_pricing_strategy()
+            return get_active_pricing_strategy()  # Recursive call to get the newly created strategy
         return None
     except Exception as e:
         print(f"Error fetching pricing strategy: {str(e)}")
         return None
+
+def ensure_default_pricing_strategy() -> bool:
+    """Ensure a default fixed price strategy exists if none is active"""
+    try:
+        default_strategy = {
+            'name': 'Fixed Price',
+            'type': 'Fixed Price',
+            'rules': {
+                'include_materials': False,
+                'description': 'Default fixed pricing strategy - service prices are set and do not change'
+            }
+        }
+        return save_pricing_strategy(default_strategy)
+    except Exception as e:
+        print(f"Error creating default pricing strategy: {str(e)}")
+        return False
 
 def calculate_final_price(
     base_cost: float,

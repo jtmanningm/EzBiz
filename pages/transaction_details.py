@@ -108,9 +108,6 @@ def transaction_details_page():
     # Initialize key variables
     payment_method_2 = None
     payment_amount_2 = 0.0
-    labor_details = []
-    labor_cost = 0.0
-    material_cost = 0.0
 
     # Display basic service info
     st.markdown(f"### {safe_get_row_value(transaction, 'SERVICE_NAME')}")
@@ -131,10 +128,8 @@ def transaction_details_page():
     if notes:
         st.markdown(f"**Notes:** {notes}")
 
-    # Get active pricing strategy
-    strategy = get_active_pricing_strategy()
-    if strategy:
-        st.info(f"Using pricing strategy: {strategy.name}")
+    # Use fixed pricing strategy (no longer user-selectable)
+    # Pricing strategy is now configured in settings only
 
     # Display base cost information
     st.markdown("### Services")
@@ -187,43 +182,10 @@ def transaction_details_page():
     )
     st.session_state.selected_employees = selected_employees
 
-    # Labor and material costs - only show if using Cost + Labor strategy
-    if strategy and strategy.type == "Cost + Labor":
-        st.subheader("Labor Details")
-        
-        for employee in selected_employees:
-            col1, col2 = st.columns(2)
-            with col1:
-                hours = st.number_input(
-                    f"Hours worked by {employee}",
-                    min_value=0.0,
-                    step=0.5,
-                    key=f"hours_{employee}"
-                )
-            with col2:
-                rate = float(get_employee_rate(employee))
-                st.write(f"Rate: ${rate:.2f}/hr")
-            
-            if hours > 0:
-                labor_details.append({
-                    "employee": employee,
-                    "hours": float(hours),
-                    "rate": rate
-                })
-                labor_cost += hours * rate
+    # Fixed pricing strategy - no labor/material cost inputs needed
 
-        # Material cost input - only show for Cost + Labor strategy
-        material_cost = st.number_input(
-            "Material Cost",
-            min_value=0.0,
-            step=5.0,
-            value=safe_get_float(safe_get_row_value(transaction, 'MATERIAL_COST', 0))
-        )
-
-    # Calculate subtotal
+    # Calculate subtotal (fixed pricing)
     subtotal = total_cost
-    if strategy and strategy.type == "Cost + Labor":
-        subtotal += labor_cost + material_cost
 
     # Price adjustment section
     st.markdown("### Price Adjustment")
@@ -253,13 +215,6 @@ def transaction_details_page():
     # Display price breakdown
     st.markdown("### Price Breakdown")
     st.write(f"Base Services Cost: ${float(total_cost):.2f}")
-    
-    if strategy and strategy.type == "Cost + Labor":
-        if labor_cost > 0:
-            st.write(f"Labor Cost: ${labor_cost:.2f}")
-        if material_cost > 0:
-            st.write(f"Material Cost: ${material_cost:.2f}")
-    
     st.write(f"Subtotal: ${subtotal:.2f}")
     
     if adjustment_amount != 0:
@@ -342,8 +297,6 @@ def transaction_details_page():
             # Prepare price adjustments JSON
             price_adjustments = {
                 'base_cost': float(total_cost),
-                'labor_cost': float(labor_cost),
-                'material_cost': float(material_cost),
                 'adjustment_amount': float(adjustment_amount),
                 'final_price': float(final_price)
             }
@@ -364,8 +317,6 @@ def transaction_details_page():
                 EMPLOYEE3_ID = ?,
                 END_TIME = ?,
                 COMMENTS = ?,
-                TOTAL_LABOR_COST = ?,
-                MATERIAL_COST = ?,
                 PRICE_ADJUSTMENTS_JSON = ?,
                 LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
             WHERE ID = ?
@@ -399,8 +350,6 @@ def transaction_details_page():
                     get_employee_by_name(selected_employees[2]) if len(selected_employees) > 2 else None,
                     datetime.now().time().strftime('%H:%M:%S'),
                     transaction_notes,
-                    labor_cost,
-                    material_cost,
                     json.dumps(price_adjustments),
                     transaction_id
                 ]
