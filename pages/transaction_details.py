@@ -49,6 +49,9 @@ def transaction_details_page():
     
     if not transaction_id:
         st.error("Could not determine transaction ID. Please try selecting the service again.")
+        # Debug: Show what's in selected_service
+        if st.session_state.get('debug_mode', True):  # Force debug for now
+            st.write("Debug - selected_service content:", st.session_state.get('selected_service', 'Not found'))
         return
 
     # Get transaction details
@@ -142,6 +145,13 @@ def transaction_details_page():
     # If no primary service name from join, try getting from SERVICE_NAME field
     if not primary_service_name:
         primary_service_name = safe_get_row_value(transaction, 'SERVICE_NAME', 'Unknown Service')
+    
+    # Force debug output to diagnose the issue
+    st.write("🔍 **DEBUG INFO** (temporary):")
+    st.write(f"Selected service from session: {st.session_state.get('selected_service', 'NOT FOUND')}")
+    st.write(f"Transaction ID being used: {transaction_id}")
+    st.write("Raw transaction data:")
+    st.json({k: str(v) for k, v in transaction.items()})
     
     # Debug information if in debug mode
     if st.session_state.get('debug_mode'):
