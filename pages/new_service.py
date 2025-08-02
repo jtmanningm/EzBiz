@@ -1294,7 +1294,7 @@ class ServiceScheduler:
         
         col1, col2 = st.columns(2)
         with col1:
-            states = ["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR"]
+            states = ["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR", "NC"]
             current_state = self.form_data.customer_data.get('service_state', 'AZ')
             try:
                 state_index = states.index(current_state) if current_state in states else 0
