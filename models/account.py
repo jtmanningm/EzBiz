@@ -400,10 +400,8 @@ def save_account_service_address(account_id: int, data: Dict[str, Any], is_prima
                 STATE,
                 ZIP_CODE,
                 SQUARE_FOOTAGE,
-                IS_PRIMARY_SERVICE,
-                CREATED_AT,
-                LAST_UPDATED_AT
-            ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+                IS_PRIMARY_SERVICE
+            ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)
             RETURNING ADDRESS_ID
             """
             params = [

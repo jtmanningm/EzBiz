@@ -134,7 +134,7 @@ def save_employee(data: Dict[str, Any]) -> Optional[int]:
             FROM OPERATIONAL.CARPET.EMPLOYEE 
             WHERE FIRST_NAME = :1 
             AND LAST_NAME = :2 
-            ORDER BY CREATED_AT DESC 
+            ORDER BY EMPLOYEE_ID DESC 
             LIMIT 1
             """,
             [data['first_name'], data['last_name']]

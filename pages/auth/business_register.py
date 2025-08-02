@@ -134,7 +134,7 @@ def create_employee_record(data: dict, business_id: int) -> Optional[int]:
         
         # Get the employee ID
         result = snowflake_conn.execute_query(
-            "SELECT EMPLOYEE_ID FROM OPERATIONAL.CARPET.EMPLOYEE WHERE EMAIL_ADDRESS = ? ORDER BY CREATED_AT DESC LIMIT 1",
+            "SELECT EMPLOYEE_ID FROM OPERATIONAL.CARPET.EMPLOYEE WHERE EMAIL_ADDRESS = ? ORDER BY EMPLOYEE_ID DESC LIMIT 1",
             [data['email']]
         )
         
