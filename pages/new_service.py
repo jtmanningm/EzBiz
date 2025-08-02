@@ -1627,18 +1627,19 @@ class ServiceScheduler:
                                     'phone_number': customer.get('PHONE_NUMBER', ''),
                                     'email_address': customer.get('EMAIL_ADDRESS', ''),
                                     'primary_contact_method': customer.get('PRIMARY_CONTACT_METHOD', 'SMS'),
-                                    # Map service address fields (use PRIMARY fields from DB for service address)
-                                    'service_street': customer.get('PRIMARY_STREET', '') or customer.get('SERVICE_STREET', ''),
-                                    'service_city': customer.get('PRIMARY_CITY', '') or customer.get('SERVICE_CITY', ''),
-                                    'service_state': customer.get('PRIMARY_STATE', '') or customer.get('SERVICE_STATE', ''),
-                                    'service_zip': customer.get('PRIMARY_ZIP', '') or customer.get('SERVICE_ZIP', ''),
+                                    # Map service address fields (fallback to billing address if no service address exists)
+                                    'service_street': customer.get('PRIMARY_STREET', '') or customer.get('SERVICE_STREET', '') or customer.get('BILLING_ADDRESS', ''),
+                                    'service_city': customer.get('PRIMARY_CITY', '') or customer.get('SERVICE_CITY', '') or customer.get('BILLING_CITY', ''),
+                                    'service_state': customer.get('PRIMARY_STATE', '') or customer.get('SERVICE_STATE', '') or customer.get('BILLING_STATE', ''),
+                                    'service_zip': customer.get('PRIMARY_ZIP', '') or customer.get('SERVICE_ZIP', '') or customer.get('BILLING_ZIP', ''),
                                     # Map billing address fields if they exist
                                     'billing_address': customer.get('BILLING_ADDRESS', ''),
                                     'billing_city': customer.get('BILLING_CITY', ''),
                                     'billing_state': customer.get('BILLING_STATE', ''),
                                     'billing_zip': customer.get('BILLING_ZIP', ''),
-                                    # Set billing flag if billing address exists
-                                    'different_billing': bool(customer.get('BILLING_ADDRESS', ''))
+                                    # Default to not showing different billing for existing customers
+                                    # User can check the box if they want different billing address
+                                    'different_billing': False
                                 })
                                 st.success(f"Selected customer: {customer.get('FIRST_NAME', '')} {customer.get('LAST_NAME', '')}")
                                 st.rerun()
