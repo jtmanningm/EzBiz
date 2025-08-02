@@ -1459,6 +1459,54 @@ class ServiceScheduler:
             st.error(f"Error validating customer data: {str(e)}")
             return ["Validation error occurred"]
 
+    def handle_customer_search(self) -> None:
+        """Handle customer search functionality."""
+        try:
+            search_term = st.text_input(
+                "Search existing customers (enter phone number or last name):",
+                key="customer_search",
+                placeholder="Enter phone or last name..."
+            )
+            
+            if search_term and len(search_term) >= 3:
+                matching_customers = search_customers(search_term)
+                if matching_customers.empty:
+                    st.info("No matching customers found.")
+                else:
+                    st.success(f"Found {len(matching_customers)} matching customer(s):")
+                    for _, customer in matching_customers.iterrows():
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"**{customer.get('FIRST_NAME', '')} {customer.get('LAST_NAME', '')}**")
+                            st.write(f"Phone: {customer.get('PHONE_NUMBER', 'N/A')}")
+                            st.write(f"Email: {customer.get('EMAIL_ADDRESS', 'N/A')}")
+                        with col2:
+                            if st.button(f"Select", key=f"select_customer_{customer.get('CUSTOMER_ID')}"):
+                                # Pre-populate form with customer data
+                                self.form_data.customer_data.update({
+                                    'customer_id': customer.get('CUSTOMER_ID'),
+                                    'first_name': customer.get('FIRST_NAME', ''),
+                                    'last_name': customer.get('LAST_NAME', ''),
+                                    'phone_number': customer.get('PHONE_NUMBER', ''),
+                                    'email_address': customer.get('EMAIL_ADDRESS', ''),
+                                    'primary_contact_method': customer.get('PRIMARY_CONTACT_METHOD', 'SMS'),
+                                    'primary_street': customer.get('PRIMARY_STREET', ''),
+                                    'primary_city': customer.get('PRIMARY_CITY', ''),
+                                    'primary_state': customer.get('PRIMARY_STATE', ''),
+                                    'primary_zip': customer.get('PRIMARY_ZIP', ''),
+                                    'service_street': customer.get('SERVICE_STREET', ''),
+                                    'service_city': customer.get('SERVICE_CITY', ''),
+                                    'service_state': customer.get('SERVICE_STATE', ''),
+                                    'service_zip': customer.get('SERVICE_ZIP', '')
+                                })
+                                st.success(f"Selected customer: {customer.get('FIRST_NAME', '')} {customer.get('LAST_NAME', '')}")
+                                st.rerun()
+                        st.markdown("---")
+        except Exception as e:
+            st.error(f"Error in customer search: {str(e)}")
+            if st.session_state.get('debug_mode'):
+                st.exception(e)
+
 def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dict[str, Any]) -> Optional[int]:
     """Save a service address for a commercial account.
     Although the SERVICE_ADDRESSES table uses CUSTOMER_ID, for commercial accounts we pass the account_id.
@@ -1568,9 +1616,25 @@ def new_service_page():
         # Display the appropriate form sections
         with st.container():
             if customer_type == "Residential":
+                # Customer Search Section
+                st.header("👤 Customer Information")
+                
+                # Add customer search functionality
+                with st.expander("🔍 Search Existing Customers", expanded=False):
+                    scheduler.handle_customer_search()
+                
+                # Customer form
                 scheduler.display_customer_form()
                 scheduler.display_service_address_form()
             else:
+                # Account Search Section  
+                st.header("🏢 Commercial Account Information")
+                
+                # Add account search functionality
+                with st.expander("🔍 Search Existing Accounts", expanded=False):
+                    scheduler.handle_account_search()
+                
+                # Account form
                 scheduler.display_account_form()
                 scheduler.display_account_service_addresses()
 
