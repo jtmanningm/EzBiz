@@ -1104,6 +1104,16 @@ class ServiceScheduler:
         """Display service selection and pricing section."""
         try:
             debug_print("Starting service selection display...")
+            
+            # Check if form_data is properly initialized
+            if not hasattr(self, 'form_data') or self.form_data is None:
+                st.error("Form data not initialized properly")
+                return False
+                
+            if not hasattr(self.form_data, 'service_selection') or self.form_data.service_selection is None:
+                st.error("Service selection data not initialized")
+                return False
+            
             services_df = fetch_services()
             debug_print(f"Services DataFrame shape: {services_df.shape if not services_df.empty else 'empty'}")
             
@@ -1259,8 +1269,15 @@ class ServiceScheduler:
         except Exception as e:
             st.error(f"Error in service selection: {str(e)}")
             st.error(f"Error type: {type(e).__name__}")
+            
+            # Enhanced debugging information
+            debug_print(f"Service selection error: {str(e)}")
+            debug_print(f"Error type: {type(e).__name__}")
+            
             import traceback
-            st.error(f"Traceback: {traceback.format_exc()}")
+            error_traceback = traceback.format_exc()
+            debug_print(f"Full traceback: {error_traceback}")
+            st.error(f"Traceback: {error_traceback}")
             
             # Try to identify the specific issue
             if "SERVICE_NAME" in str(e):
@@ -1269,10 +1286,69 @@ class ServiceScheduler:
                 st.error("Issue with service cost column - check database schema")
             elif "clear" in str(e):
                 st.error("Issue with cache clearing - this is non-critical")
+            elif "form_data" in str(e):
+                st.error("Issue with form data initialization")
+            elif "AttributeError" in str(type(e).__name__):
+                st.error("Attribute error - likely missing method or property")
                 
-            if st.session_state.get('debug_mode'):
+            # Always show exception in debug mode or development
+            if st.session_state.get('debug_mode') or st.secrets.get("environment") == "development":
                 st.exception(e)
             return False
+
+    def display_service_address_form(self) -> None:
+        """Display service address form section."""
+        st.subheader("Service Address")
+        
+        # Option to use primary address
+        use_primary = st.checkbox(
+            "Service address is the same as primary address",
+            value=st.session_state.get('use_primary_for_service', False),
+            key="use_primary_address"
+        )
+        
+        if use_primary:
+            # Copy primary address to service address
+            self.form_data.customer_data['service_street'] = self.form_data.customer_data.get('primary_street', '')
+            self.form_data.customer_data['service_city'] = self.form_data.customer_data.get('primary_city', '')
+            self.form_data.customer_data['service_state'] = self.form_data.customer_data.get('primary_state', '')
+            self.form_data.customer_data['service_zip'] = self.form_data.customer_data.get('primary_zip', '')
+            
+            st.info("Service address will be same as primary address")
+        else:
+            # Separate service address fields
+            self.form_data.customer_data['service_street'] = st.text_input(
+                "Service Street Address",
+                value=self.form_data.customer_data.get('service_street', ''),
+                key="service_street_input"
+            )
+            self.form_data.customer_data['service_city'] = st.text_input(
+                "Service City",
+                value=self.form_data.customer_data.get('service_city', ''),
+                key="service_city_input"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                states = ["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR"]
+                current_state = self.form_data.customer_data.get('service_state', 'AZ')
+                try:
+                    state_index = states.index(current_state) if current_state in states else 0
+                except ValueError:
+                    state_index = 0
+                    
+                self.form_data.customer_data['service_state'] = st.selectbox(
+                    "Service State",
+                    options=states,
+                    index=state_index,
+                    key="service_state_select"
+                )
+            with col2:
+                self.form_data.customer_data['service_zip'] = st.text_input(
+                    "Service ZIP Code",
+                    value=self.form_data.customer_data.get('service_zip', ''),
+                    key="service_zip_input"
+                )
 
     def save_service(self) -> bool:
         """Save complete service booking and send confirmation email if needed."""
