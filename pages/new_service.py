@@ -1611,14 +1611,16 @@ class ServiceScheduler:
                     st.info("No matching customers found.")
                 else:
                     st.success(f"Found {len(matching_customers)} matching customer(s):")
-                    for _, customer in matching_customers.iterrows():
+                    for idx, customer in matching_customers.iterrows():
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.write(f"**{customer.get('FIRST_NAME', '')} {customer.get('LAST_NAME', '')}**")
                             st.write(f"Phone: {customer.get('PHONE_NUMBER', 'N/A')}")
                             st.write(f"Email: {customer.get('EMAIL_ADDRESS', 'N/A')}")
                         with col2:
-                            if st.button(f"Select", key=f"select_customer_{customer.get('CUSTOMER_ID')}"):
+                            # Use both index and customer ID to ensure uniqueness
+                            unique_key = f"select_customer_{customer.get('CUSTOMER_ID')}_{idx}_{hash(search_term) % 10000}"
+                            if st.button(f"Select", key=unique_key):
                                 # Pre-populate form with customer data
                                 self.form_data.customer_data.update({
                                     'customer_id': customer.get('CUSTOMER_ID'),
