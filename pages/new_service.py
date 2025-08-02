@@ -692,42 +692,36 @@ class ServiceScheduler:
             )
             self.form_data.customer_data['text_flag'] = text_flag
 
-        st.markdown("### Service Address")
-        service_address = st.text_input(
+        # Primary Address
+        st.markdown("### Primary Address")
+        primary_address = st.text_input(
             "Street Address",
-            value=self.form_data.customer_data.get('service_address', ''),
-            key="service_street"
+            value=self.form_data.customer_data.get('primary_street', ''),
+            key="primary_street"
         )
-        self.form_data.customer_data['service_address'] = service_address
+        self.form_data.customer_data['primary_street'] = primary_address
         col1, col2 = st.columns(2)
         with col1:
-            service_city = st.text_input(
+            primary_city = st.text_input(
                 "City",
-                value=self.form_data.customer_data.get('service_city', ''),
-                key="service_city"
+                value=self.form_data.customer_data.get('primary_city', ''),
+                key="primary_city"
             )
-            self.form_data.customer_data['service_city'] = service_city
-            service_state = st.text_input(
+            self.form_data.customer_data['primary_city'] = primary_city
+            primary_state = st.selectbox(
                 "State",
-                value=self.form_data.customer_data.get('service_state', ''),
-                key="service_state"
+                options=["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR"],
+                index=0,
+                key="primary_state"
             )
-            self.form_data.customer_data['service_state'] = service_state
+            self.form_data.customer_data['primary_state'] = primary_state
         with col2:
-            service_zip = st.text_input(
+            primary_zip = st.text_input(
                 "ZIP Code",
-                value=self.form_data.customer_data.get('service_zip', ''),
-                key="service_zip"
+                value=self.form_data.customer_data.get('primary_zip', ''),
+                key="primary_zip"
             )
-            self.form_data.customer_data['service_zip'] = service_zip
-            service_addr_sq_ft = st.number_input(
-                "Square Footage",
-                min_value=0,
-                step=100,
-                value=self.form_data.customer_data.get('service_addr_sq_ft', 0),
-                key="service_sq_ft"
-            )
-            self.form_data.customer_data['service_addr_sq_ft'] = service_addr_sq_ft
+            self.form_data.customer_data['primary_zip'] = primary_zip
 
         different_billing = st.checkbox(
             "Different Billing Address",
