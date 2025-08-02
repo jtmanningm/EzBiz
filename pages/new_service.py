@@ -678,9 +678,16 @@ class ServiceScheduler:
 
         col1, col2 = st.columns(2)
         with col1:
+            contact_methods = ["SMS", "Phone", "Email"]
+            current_method = self.form_data.customer_data.get('primary_contact_method', 'SMS')
+            try:
+                method_index = contact_methods.index(current_method)
+            except ValueError:
+                method_index = 0
             primary_contact_method = st.selectbox(
                 "Preferred Contact Method",
-                ["SMS", "Phone", "Email"],
+                contact_methods,
+                index=method_index,
                 key="new_contact_method"
             )
             self.form_data.customer_data['primary_contact_method'] = primary_contact_method
@@ -692,40 +699,10 @@ class ServiceScheduler:
             )
             self.form_data.customer_data['text_flag'] = text_flag
 
-        # Primary Address
-        st.markdown("### Primary Address")
-        primary_address = st.text_input(
-            "Street Address",
-            value=self.form_data.customer_data.get('primary_street', ''),
-            key="primary_street"
-        )
-        self.form_data.customer_data['primary_street'] = primary_address
-        col1, col2 = st.columns(2)
-        with col1:
-            primary_city = st.text_input(
-                "City",
-                value=self.form_data.customer_data.get('primary_city', ''),
-                key="primary_city"
-            )
-            self.form_data.customer_data['primary_city'] = primary_city
-            primary_state = st.selectbox(
-                "State",
-                options=["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR"],
-                index=0,
-                key="primary_state"
-            )
-            self.form_data.customer_data['primary_state'] = primary_state
-        with col2:
-            primary_zip = st.text_input(
-                "ZIP Code",
-                value=self.form_data.customer_data.get('primary_zip', ''),
-                key="primary_zip"
-            )
-            self.form_data.customer_data['primary_zip'] = primary_zip
-
+        # Billing Address Option
         different_billing = st.checkbox(
-            "Different Billing Address",
-            value=False,
+            "Billing address is different from service address",
+            value=self.form_data.customer_data.get('different_billing', False),
             key="different_billing_checkbox"
         )
         self.form_data.customer_data['different_billing'] = different_billing
@@ -1294,55 +1271,39 @@ class ServiceScheduler:
         """Display service address form section."""
         st.subheader("Service Address")
         
-        # Option to use primary address
-        use_primary = st.checkbox(
-            "Service address is the same as primary address",
-            value=st.session_state.get('use_primary_for_service', False),
-            key="use_primary_address"
+        # Service address fields (now required fields)
+        self.form_data.customer_data['service_street'] = st.text_input(
+            "Service Street Address",
+            value=self.form_data.customer_data.get('service_street', ''),
+            key="service_street_input"
+        )
+        self.form_data.customer_data['service_city'] = st.text_input(
+            "Service City",
+            value=self.form_data.customer_data.get('service_city', ''),
+            key="service_city_input"
         )
         
-        if use_primary:
-            # Copy primary address to service address
-            self.form_data.customer_data['service_street'] = self.form_data.customer_data.get('primary_street', '')
-            self.form_data.customer_data['service_city'] = self.form_data.customer_data.get('primary_city', '')
-            self.form_data.customer_data['service_state'] = self.form_data.customer_data.get('primary_state', '')
-            self.form_data.customer_data['service_zip'] = self.form_data.customer_data.get('primary_zip', '')
-            
-            st.info("Service address will be same as primary address")
-        else:
-            # Separate service address fields
-            self.form_data.customer_data['service_street'] = st.text_input(
-                "Service Street Address",
-                value=self.form_data.customer_data.get('service_street', ''),
-                key="service_street_input"
+        col1, col2 = st.columns(2)
+        with col1:
+            states = ["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR"]
+            current_state = self.form_data.customer_data.get('service_state', 'AZ')
+            try:
+                state_index = states.index(current_state) if current_state in states else 0
+            except ValueError:
+                state_index = 0
+                
+            self.form_data.customer_data['service_state'] = st.selectbox(
+                "Service State",
+                options=states,
+                index=state_index,
+                key="service_state_select"
             )
-            self.form_data.customer_data['service_city'] = st.text_input(
-                "Service City",
-                value=self.form_data.customer_data.get('service_city', ''),
-                key="service_city_input"
+        with col2:
+            self.form_data.customer_data['service_zip'] = st.text_input(
+                "Service ZIP Code",
+                value=self.form_data.customer_data.get('service_zip', ''),
+                key="service_zip_input"
             )
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                states = ["AZ", "CA", "CO", "NV", "UT", "NM", "TX", "FL", "NY", "IL", "WA", "OR"]
-                current_state = self.form_data.customer_data.get('service_state', 'AZ')
-                try:
-                    state_index = states.index(current_state) if current_state in states else 0
-                except ValueError:
-                    state_index = 0
-                    
-                self.form_data.customer_data['service_state'] = st.selectbox(
-                    "Service State",
-                    options=states,
-                    index=state_index,
-                    key="service_state_select"
-                )
-            with col2:
-                self.form_data.customer_data['service_zip'] = st.text_input(
-                    "Service ZIP Code",
-                    value=self.form_data.customer_data.get('service_zip', ''),
-                    key="service_zip_input"
-                )
 
     def save_service(self) -> bool:
         """Save complete service booking and send confirmation email if needed."""
@@ -1560,14 +1521,18 @@ class ServiceScheduler:
                                     'phone_number': customer.get('PHONE_NUMBER', ''),
                                     'email_address': customer.get('EMAIL_ADDRESS', ''),
                                     'primary_contact_method': customer.get('PRIMARY_CONTACT_METHOD', 'SMS'),
-                                    'primary_street': customer.get('PRIMARY_STREET', ''),
-                                    'primary_city': customer.get('PRIMARY_CITY', ''),
-                                    'primary_state': customer.get('PRIMARY_STATE', ''),
-                                    'primary_zip': customer.get('PRIMARY_ZIP', ''),
-                                    'service_street': customer.get('SERVICE_STREET', ''),
-                                    'service_city': customer.get('SERVICE_CITY', ''),
-                                    'service_state': customer.get('SERVICE_STATE', ''),
-                                    'service_zip': customer.get('SERVICE_ZIP', '')
+                                    # Map service address fields (use PRIMARY fields from DB for service address)
+                                    'service_street': customer.get('PRIMARY_STREET', '') or customer.get('SERVICE_STREET', ''),
+                                    'service_city': customer.get('PRIMARY_CITY', '') or customer.get('SERVICE_CITY', ''),
+                                    'service_state': customer.get('PRIMARY_STATE', '') or customer.get('SERVICE_STATE', ''),
+                                    'service_zip': customer.get('PRIMARY_ZIP', '') or customer.get('SERVICE_ZIP', ''),
+                                    # Map billing address fields if they exist
+                                    'billing_address': customer.get('BILLING_ADDRESS', ''),
+                                    'billing_city': customer.get('BILLING_CITY', ''),
+                                    'billing_state': customer.get('BILLING_STATE', ''),
+                                    'billing_zip': customer.get('BILLING_ZIP', ''),
+                                    # Set billing flag if billing address exists
+                                    'different_billing': bool(customer.get('BILLING_ADDRESS', ''))
                                 })
                                 st.success(f"Selected customer: {customer.get('FIRST_NAME', '')} {customer.get('LAST_NAME', '')}")
                                 st.rerun()
