@@ -22,11 +22,12 @@ def upcoming_services_page():
             DEPOSIT_PAID,
             IS_RECURRING,
             RECURRENCE_PATTERN,
-            COMMENTS
+            COMMENTS,
+            STATUS
         FROM SERVICE_TRANSACTION
         WHERE CUSTOMER_ID = ?
         AND SERVICE_DATE >= CURRENT_DATE()
-        AND STATUS = 'SCHEDULED'
+        AND STATUS IN ('SCHEDULED', 'CANCELLED')
         ORDER BY SERVICE_DATE, START_TIME
         """
                 
@@ -70,43 +71,72 @@ def upcoming_services_page():
                             f"{deposit_status}"
                         )
                 
-                # Actions
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    # Reschedule button
-                    if st.button(
-                        "Reschedule", 
-                        key=f"reschedule_{service['TRANSACTION_ID']}",
-                        type="secondary",
-                        use_container_width=True
-                    ):
-                        st.session_state.reschedule_service = service
-                        st.session_state.show_reschedule = True
-                        st.rerun()
-                        
-                with col2:
-                    # Modify button (for notes)
-                    if st.button(
-                        "Modify Notes", 
-                        key=f"modify_{service['TRANSACTION_ID']}",
-                        type="secondary",
-                        use_container_width=True
-                    ):
-                        st.session_state.modify_service = service
-                        st.session_state.show_modify = True
-                        st.rerun()
-                        
-                with col3:
-                    # Cancel button
-                    if st.button(
-                        "Cancel", 
-                        key=f"cancel_{service['TRANSACTION_ID']}",
-                        type="secondary",
-                        use_container_width=True
-                    ):
-                        st.session_state.cancel_service = service
-                        st.session_state.show_cancel = True
-                        st.rerun()
+                # Actions - different buttons based on status
+                if service.get('STATUS') == 'CANCELLED':
+                    # For cancelled services, show restart button
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("❌ **Service Cancelled**")
+                    with col2:
+                        # Restart button
+                        if st.button(
+                            "🔄 Restart Service", 
+                            key=f"restart_{service['TRANSACTION_ID']}",
+                            type="primary",
+                            use_container_width=True
+                        ):
+                            # Restart the service
+                            try:
+                                update_query = """
+                                UPDATE SERVICE_TRANSACTION
+                                SET STATUS = 'SCHEDULED',
+                                    COMMENTS = COALESCE(COMMENTS || ' | ', '') || 'Service restarted by customer on ' || CURRENT_DATE(),
+                                    LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+                                WHERE ID = ?
+                                """
+                                snowflake_conn.execute_query(update_query, [service['TRANSACTION_ID']])
+                                st.success("Service restarted successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error restarting service: {str(e)}")
+                else:
+                    # For scheduled services, show normal buttons
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        # Reschedule button
+                        if st.button(
+                            "Reschedule", 
+                            key=f"reschedule_{service['TRANSACTION_ID']}",
+                            type="secondary",
+                            use_container_width=True
+                        ):
+                            st.session_state.reschedule_service = service
+                            st.session_state.show_reschedule = True
+                            st.rerun()
+                            
+                    with col2:
+                        # Modify button (for notes)
+                        if st.button(
+                            "Modify Notes", 
+                            key=f"modify_{service['TRANSACTION_ID']}",
+                            type="secondary",
+                            use_container_width=True
+                        ):
+                            st.session_state.modify_service = service
+                            st.session_state.show_modify = True
+                            st.rerun()
+                            
+                    with col3:
+                        # Cancel button
+                        if st.button(
+                            "Cancel", 
+                            key=f"cancel_{service['TRANSACTION_ID']}",
+                            type="secondary",
+                            use_container_width=True
+                        ):
+                            st.session_state.cancel_service = service
+                            st.session_state.show_cancel = True
+                            st.rerun()
                         
                 st.markdown("---")
         

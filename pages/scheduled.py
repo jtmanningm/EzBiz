@@ -105,6 +105,27 @@ def handle_service_start(snowflake_conn: SnowflakeConnection, row: pd.Series) ->
     st.session_state['service_start_time'] = datetime.now().time()
     st.session_state['page'] = 'transaction_details'
 
+def handle_service_restart(snowflake_conn: SnowflakeConnection, row: pd.Series) -> None:
+    """Handle service restart logic - change status from CANCELLED back to SCHEDULED"""
+    transaction_id = safe_get_int(row['TRANSACTION_ID'])
+    
+    try:
+        # Update service status back to SCHEDULED
+        update_query = """
+        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+        SET STATUS = 'SCHEDULED',
+            COMMENTS = COALESCE(COMMENTS || ' | ', '') || 'Service restarted on ' || CURRENT_DATE(),
+            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+        WHERE ID = ?
+        """
+        snowflake_conn.execute_query(update_query, [transaction_id])
+        
+        st.success("Service restarted successfully! Status changed back to SCHEDULED.")
+        
+    except Exception as e:
+        st.error(f"Error restarting service: {str(e)}")
+        print(f"Restart error: {str(e)}")
+
 def render_service_card(row: pd.Series, snowflake_conn: SnowflakeConnection) -> None:
     """Render a single service card with all its details and actions."""
     with st.container():
@@ -116,8 +137,17 @@ def render_service_card(row: pd.Series, snowflake_conn: SnowflakeConnection) -> 
 
         # Service details column
         with col2:
-            # Customer and Service Info
-            service_info = f"📋 {row['SERVICE_NAME']} - {row['CUSTOMER_NAME']}"
+            # Customer and Service Info with Status
+            status_icon = {
+                'SCHEDULED': '✅',
+                'IN_PROGRESS': '🔄', 
+                'CANCELLED': '❌',
+                'COMPLETED': '🏁'
+            }.get(row['STATUS'], '❓')
+            
+            service_info = f"{status_icon} {row['SERVICE_NAME']} - {row['CUSTOMER_NAME']}"
+            if row['STATUS'] == 'CANCELLED':
+                service_info += " (CANCELLED - Can be restarted)"
             
             # Service Address
             address_parts = [
@@ -171,11 +201,21 @@ def render_service_card(row: pd.Series, snowflake_conn: SnowflakeConnection) -> 
                     if st.button("✓ Start", key=f"start_{unique_key_prefix}"):
                         handle_service_start(snowflake_conn, row)
                         st.rerun()
+                elif row['STATUS'] == 'CANCELLED':
+                    # Show restart button for cancelled services
+                    if st.button("🔄 Restart", key=f"restart_{unique_key_prefix}"):
+                        handle_service_restart(snowflake_conn, row)
+                        st.rerun()
             else:
                 # If no deposit required, show start button directly
                 if row['STATUS'] == 'SCHEDULED':
                     if st.button("✓ Start", key=f"start_{unique_key_prefix}"):
                         handle_service_start(snowflake_conn, row)
+                        st.rerun()
+                elif row['STATUS'] == 'CANCELLED':
+                    # Show restart button for cancelled services (no deposit)
+                    if st.button("🔄 Restart", key=f"restart_no_deposit_{unique_key_prefix}"):
+                        handle_service_restart(snowflake_conn, row)
                         st.rerun()
 
 def scheduled_services_page():
@@ -322,7 +362,7 @@ def scheduled_services_page():
         LEFT JOIN RankedAccountAddresses RAA ON ST.ACCOUNT_ID = RAA.ACCOUNT_ID AND RAA.rn = 1
         WHERE ST.SERVICE_DATE >= ?
         AND ST.SERVICE_DATE <= ?
-        AND ST.STATUS IN ('SCHEDULED', 'IN_PROGRESS')  -- Include both statuses
+        AND ST.STATUS IN ('SCHEDULED', 'IN_PROGRESS', 'CANCELLED')  -- Include scheduled, in-progress, and cancelled
         ORDER BY ST.SERVICE_DATE, ST.START_TIME;
         """
         
