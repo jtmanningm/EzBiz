@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import base64
 from snowflake.snowpark import Session
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -49,29 +50,33 @@ class SnowflakeConnection:
             PRIVATE_KEY_PASSPHRASE = st.secrets.get("snowflake", {}).get("private_key_passphrase", '')
             
             try:
-                # First try to load as encrypted PKCS#8
-                try:
+                # Check if key is in base64 format (no PEM headers)
+                if not PRIVATE_KEY_DATA.startswith('-----BEGIN'):
+                    # Key is in base64 format, decode it directly
+                    return base64.b64decode(PRIVATE_KEY_DATA)
+                else:
+                    # Key is in PEM format, load and convert
                     private_key = serialization.load_pem_private_key(
-                        PRIVATE_KEY_DATA.encode(),
-                        password=PRIVATE_KEY_PASSPHRASE.encode() if PRIVATE_KEY_PASSPHRASE else None,
+                        PRIVATE_KEY_DATA.encode('utf-8'),
+                        password=PRIVATE_KEY_PASSPHRASE.encode('utf-8') if PRIVATE_KEY_PASSPHRASE else None,
                         backend=default_backend()
                     )
-                except Exception:
-                    # If that fails, try loading as unencrypted
-                    private_key = serialization.load_pem_private_key(
-                        PRIVATE_KEY_DATA.encode(),
-                        password=None,
-                        backend=default_backend()
+                    
+                    # Convert to DER format for Snowflake
+                    private_key_der = private_key.private_bytes(
+                        encoding=serialization.Encoding.DER,
+                        format=serialization.PrivateFormat.PKCS8,
+                        encryption_algorithm=serialization.NoEncryption()
                     )
+                    
+                    return private_key_der
                 
-                return private_key.private_bytes(
-                    encoding=serialization.Encoding.DER,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption()
-                )
-            except Exception as e:
+            except ValueError as e:
                 st.error(f"Error loading private key from secrets: {e}")
-                st.error("Key format may be incompatible. Try converting to unencrypted PKCS#8 format.")
+                st.error("Key format may be incompatible. Use base64 encoded DER format or proper PEM format.")
+                raise
+            except Exception as e:
+                st.error(f"Unexpected error loading private key: {e}")
                 raise
         else:
             # Local development - load from file
