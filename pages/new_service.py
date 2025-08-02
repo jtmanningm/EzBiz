@@ -1274,6 +1274,191 @@ class ServiceScheduler:
                 st.exception(e)
             return False
 
+    def save_service(self) -> bool:
+        """Save complete service booking and send confirmation email if needed."""
+        try:
+            # Commercial accounts
+            if self.form_data.customer_data['is_commercial']:
+                account_id = self.save_account_and_get_id()
+                if not account_id:
+                    return False
+                self.form_data.customer_data['account_id'] = account_id
+            else:
+                # Residential
+                validation_errors = self.validate_customer_data()
+                if validation_errors:
+                    for error in validation_errors:
+                        st.error(error)
+                    return False
+                customer_id = self.save_customer_and_get_id(self.form_data.customer_data)
+                if not customer_id:
+                    return False
+                self.form_data.customer_data['customer_id'] = customer_id
+
+            # Calculate total cost
+            services_df = fetch_services()
+            total_cost = sum(
+                float(services_df[services_df['SERVICE_NAME'] == service]['COST'].iloc[0])
+                for service in self.form_data.service_selection['selected_services']
+            )
+            service_data = {
+                'customer_id': self.form_data.customer_data.get('customer_id'),
+                'account_id': self.form_data.customer_data.get('account_id'),
+                'service_name': self.form_data.service_selection['selected_services'][0],
+                'service_date': self.form_data.service_schedule['date'],
+                'service_time': self.form_data.service_schedule['time'],
+                'deposit': float(self.form_data.service_selection['deposit_amount']),
+                'notes': self.form_data.service_selection.get('notes'),
+                'is_recurring': bool(self.form_data.service_selection['is_recurring']),
+                'recurrence_pattern': self.form_data.service_selection['recurrence_pattern']
+            }
+
+            # Save service schedule
+            service_scheduled = save_service_schedule(
+                customer_id=service_data['customer_id'],
+                account_id=service_data['account_id'],
+                services=self.form_data.service_selection['selected_services'],
+                service_date=service_data['service_date'],
+                service_time=service_data['service_time'],
+                deposit_amount=service_data['deposit'],
+                notes=service_data['notes'],
+                is_recurring=service_data['is_recurring'],
+                recurrence_pattern=service_data['recurrence_pattern'],
+                customer_data=self.form_data.customer_data
+            )
+            if not service_scheduled:
+                st.error("Failed to schedule service")
+                return False
+
+            success_message = [
+                "Service scheduled successfully!",
+                f"Deposit Amount: {format_currency(service_data['deposit'])}",
+                f"Remaining Balance: {format_currency(total_cost - service_data['deposit'])}"
+            ]
+            if service_data['is_recurring']:
+                success_message.append(f"Recurring: {service_data['recurrence_pattern']}")
+
+            # Optional: send email if we have an address
+            if self.form_data.customer_data.get('email_address'):
+                service_details = {
+                    'customer_name': (
+                        self.form_data.customer_data.get('business_name')
+                        if self.form_data.customer_data['is_commercial']
+                        else f"{self.form_data.customer_data.get('first_name', '')} {self.form_data.customer_data.get('last_name', '')}"
+                    ).strip(),
+                    'customer_email': self.form_data.customer_data['email_address'],
+                    'service_type': ', '.join(self.form_data.service_selection['selected_services']),
+                    'date': service_data['service_date'].strftime('%Y-%m-%d'),
+                    'time': service_data['service_time'].strftime('%I:%M %p'),
+                    'deposit_required': service_data['deposit'] > 0,
+                    'deposit_amount': service_data['deposit'],
+                    'deposit_paid': False,
+                    'notes': service_data['notes'],
+                    'total_cost': total_cost
+                }
+                business_info = fetch_business_info()
+                if not business_info:
+                    success_message.append("Note: Unable to send confirmation - missing business info")
+                else:
+                    # Get customer's preferred contact method
+                    preferred_method = self.form_data.customer_data.get('primary_contact_method', 'SMS')
+                    
+                    # Try to send via preferred method first
+                    notification_sent = False
+                    
+                    if preferred_method == 'SMS' and self.form_data.customer_data.get('phone_number'):
+                        sms_result = send_service_notification_sms(
+                            customer_phone=self.form_data.customer_data['phone_number'],
+                            service_details=service_details,
+                            business_info=business_info,
+                            notification_type="scheduled"
+                        )
+                        if sms_result and sms_result.success:
+                            success_message.append("Confirmation SMS sent!")
+                            notification_sent = True
+                        else:
+                            error_msg = sms_result.message if sms_result else "Unknown SMS error"
+                            success_message.append(f"SMS failed ({error_msg}), trying email...")
+                    
+                    # If SMS failed or email is preferred, try email
+                    if not notification_sent and self.form_data.customer_data.get('email_address'):
+                        email_result = generate_service_scheduled_email(service_details, business_info)
+                        if email_result and email_result.success:
+                            success_message.append("Confirmation email sent!")
+                            notification_sent = True
+                        else:
+                            error_msg = email_result.message if email_result else "Unknown email error"
+                            success_message.append(f"Email also failed: {error_msg}")
+                    
+                    # If both failed or no contact info
+                    if not notification_sent:
+                        if preferred_method == 'Phone':
+                            success_message.append("Phone confirmation preferred - please call customer")
+                        else:
+                            success_message.append("Note: Unable to send automatic confirmation")
+
+            st.session_state['success_message'] = '\n'.join(success_message)
+            st.session_state['show_notification'] = True
+            st.session_state['page'] = 'scheduled_services'
+
+            # Clear form data
+            st.session_state.form_data = ServiceFormData.initialize()
+
+            # Trigger rerun to navigate to scheduled services page
+            st.rerun()
+            return True
+
+        except Exception as e:
+            st.error(f"Error saving service: {str(e)}")
+            if st.session_state.get('debug_mode'):
+                st.exception(e)
+            return False
+
+    def validate_customer_data(self) -> List[str]:
+        """Validate customer form data and return list of error messages."""
+        errors = []
+        
+        try:
+            customer_data = self.form_data.customer_data
+            
+            # Basic validation
+            if not customer_data.get('first_name'):
+                errors.append("First name is required")
+            if not customer_data.get('last_name'):
+                errors.append("Last name is required")
+            if not customer_data.get('phone_number'):
+                errors.append("Phone number is required")
+            
+            # Phone validation
+            phone = customer_data.get('phone_number', '')
+            if phone and not validate_phone(phone):
+                errors.append("Please enter a valid phone number")
+            
+            # Email validation (if provided)
+            email = customer_data.get('email_address', '')
+            if email and not validate_email(email):
+                errors.append("Please enter a valid email address")
+            
+            # Address validation
+            if not customer_data.get('primary_street'):
+                errors.append("Primary address street is required")
+            if not customer_data.get('primary_city'):
+                errors.append("Primary address city is required")
+            if not customer_data.get('primary_state'):
+                errors.append("Primary address state is required")
+            if not customer_data.get('primary_zip'):
+                errors.append("Primary address ZIP code is required")
+            else:
+                zip_code = customer_data.get('primary_zip', '')
+                if not validate_zip_code(zip_code):
+                    errors.append("Please enter a valid ZIP code")
+            
+            return errors
+            
+        except Exception as e:
+            st.error(f"Error validating customer data: {str(e)}")
+            return ["Validation error occurred"]
+
 def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dict[str, Any]) -> Optional[int]:
     """Save a service address for a commercial account.
     Although the SERVICE_ADDRESSES table uses CUSTOMER_ID, for commercial accounts we pass the account_id.
@@ -1330,16 +1515,9 @@ def save_account_service_address(snowflake_conn: Any, account_id: int, data: Dic
         return None
 
 
-    def save_service(self) -> bool:
-        """Save complete service booking and send confirmation email if needed."""
-        try:
-            # Commercial accounts
-            if self.form_data.customer_data['is_commercial']:
-                account_id = self.save_account_and_get_id()
-                if not account_id:
-                    return False
-                self.form_data.customer_data['account_id'] = account_id
-            else:
+def new_service_page():
+    """Main service scheduling page with improved UI organization."""
+    try:
                 # Residential
                 validation_errors = self.validate_customer_data()
                 if validation_errors:
