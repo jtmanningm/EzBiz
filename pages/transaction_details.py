@@ -1,463 +1,491 @@
-from datetime import datetime
+"""
+NEW Transaction Details Page - Built from scratch
+Displays complete service transaction information with accurate pricing
+"""
+
 import streamlit as st
-import json
-from typing import Dict, Any, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, List
 from database.connection import SnowflakeConnection
-from models.employee import fetch_employees, get_employee_by_name, get_employee_rate
-from models.pricing import get_active_pricing_strategy
-from utils.formatting import format_currency
-from utils.email import send_completion_email
+from utils.formatting import format_currency, format_date, format_time
 from utils.null_handling import safe_get_float, safe_get_int, safe_get_string, safe_get_bool
 
-# Initialize database connection
-snowflake_conn = SnowflakeConnection.get_instance()
-
-def safe_get_row_value(row, column: str, default: Any = None) -> Any:
-    """
-    Safely get a value from a Snowflake Row object.
+def get_transaction_details(transaction_id: int) -> Optional[Dict[str, Any]]:
+    """Get complete transaction details from database"""
+    conn = SnowflakeConnection.get_instance()
     
-    Args:
-        row: Snowflake Row object
-        column: Column name to access
-        default: Default value if column doesn't exist or is None
-    
-    Returns:
-        Column value or default
-    """
-    try:
-        value = getattr(row, column)
-        return value if value is not None else default
-    except AttributeError:
-        return default
-
-def transaction_details_page():
-    """Display and handle service transaction details"""
-    st.title("Service Details")
-    
-    # Get selected service from session state
-    selected_service = st.session_state.get('selected_service')
-    if not selected_service:
-        st.error("No service selected. Please select a service from scheduled services.")
-        return
-
-    # Get the transaction ID from session state
-    transaction_id = safe_get_int(selected_service.get('TRANSACTION_ID'))
-    
-    if not transaction_id:
-        st.error("Could not determine transaction ID. Please try selecting the service again.")
-        # Debug: Show what's in selected_service
-        if st.session_state.get('debug_mode', True):  # Force debug for now
-            st.write("Debug - selected_service content:", st.session_state.get('selected_service', 'Not found'))
-        return
-
-    # Get transaction details directly from SERVICE_TRANSACTION table
     query = """
     SELECT 
-        t.ID,
-        t.SERVICE_NAME,
-        t.SERVICE_ID,
+        -- Transaction core data
+        t.ID as TRANSACTION_ID,
+        t.SERVICE_NAME as PRIMARY_SERVICE_NAME,
+        t.SERVICE_ID as PRIMARY_SERVICE_ID,
         t.SERVICE2_ID,
         t.SERVICE3_ID,
         t.BASE_SERVICE_COST,
-        t.MATERIAL_COST,
-        t.TOTAL_LABOR_COST,
-        t.COMMENTS,
+        t.AMOUNT as TOTAL_AMOUNT,
         t.STATUS,
-        t.PRICING_STRATEGY,
+        t.COMMENTS,
+        t.SERVICE_DATE,
+        t.START_TIME,
+        t.END_TIME,
         t.DEPOSIT,
         t.DEPOSIT_PAID,
-        t.START_TIME,
+        t.MATERIAL_COST,
+        t.TOTAL_LABOR_COST,
+        t.PRICING_STRATEGY,
         t.MARKUP_PERCENTAGE,
         t.PRICE_ADJUSTMENTS_JSON,
-        t.AMOUNT,
-        t.SERVICE_DATE,
-        t.END_TIME,
-        COALESCE(c.FIRST_NAME || ' ' || c.LAST_NAME, a.ACCOUNT_NAME) as CUSTOMER_NAME,
+        t.IS_RECURRING,
+        t.RECURRENCE_PATTERN,
+        t.CREATED_DATE,
+        
+        -- Customer information
+        t.CUSTOMER_ID,
+        c.FIRST_NAME as CUSTOMER_FIRST_NAME,
+        c.LAST_NAME as CUSTOMER_LAST_NAME,
         c.EMAIL_ADDRESS as CUSTOMER_EMAIL,
-        -- Service names from SERVICES table joins for additional services
+        c.PHONE_NUMBER as CUSTOMER_PHONE,
+        
+        -- Account information (if applicable)
+        t.ACCOUNT_ID,
+        a.ACCOUNT_NAME,
+        
+        -- Primary service details from SERVICES table
+        s1.SERVICE_NAME as PRIMARY_SERVICE_TABLE_NAME,
+        s1.COST as PRIMARY_SERVICE_TABLE_COST,
+        s1.SERVICE_DURATION as PRIMARY_SERVICE_DURATION,
+        s1.SERVICE_CATEGORY as PRIMARY_SERVICE_CATEGORY,
+        
+        -- Additional service 2 details
         s2.SERVICE_NAME as SERVICE2_NAME,
         s2.COST as SERVICE2_COST,
+        s2.SERVICE_DURATION as SERVICE2_DURATION,
+        s2.SERVICE_CATEGORY as SERVICE2_CATEGORY,
+        
+        -- Additional service 3 details
         s3.SERVICE_NAME as SERVICE3_NAME,
         s3.COST as SERVICE3_COST,
-        sa.STREET_ADDRESS as SERVICE_ADDRESS,
-        sa.CITY as SERVICE_CITY,
-        sa.STATE as SERVICE_STATE,
-        sa.ZIP_CODE as SERVICE_ZIP
+        s3.SERVICE_DURATION as SERVICE3_DURATION,
+        s3.SERVICE_CATEGORY as SERVICE3_CATEGORY,
+        
+        -- Service address
+        sa.STREET_ADDRESS,
+        sa.CITY,
+        sa.STATE,
+        sa.ZIP_CODE,
+        sa.SQUARE_FOOTAGE
+        
     FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION t
     LEFT JOIN OPERATIONAL.CARPET.CUSTOMER c ON t.CUSTOMER_ID = c.CUSTOMER_ID
     LEFT JOIN OPERATIONAL.CARPET.ACCOUNTS a ON t.ACCOUNT_ID = a.ACCOUNT_ID
+    LEFT JOIN OPERATIONAL.CARPET.SERVICES s1 ON t.SERVICE_ID = s1.SERVICE_ID
     LEFT JOIN OPERATIONAL.CARPET.SERVICES s2 ON t.SERVICE2_ID = s2.SERVICE_ID
     LEFT JOIN OPERATIONAL.CARPET.SERVICES s3 ON t.SERVICE3_ID = s3.SERVICE_ID
-    LEFT JOIN OPERATIONAL.CARPET.SERVICE_ADDRESSES sa ON t.CUSTOMER_ID = sa.CUSTOMER_ID AND sa.IS_PRIMARY_SERVICE = TRUE
+    LEFT JOIN OPERATIONAL.CARPET.SERVICE_ADDRESSES sa ON 
+        (t.CUSTOMER_ID = sa.CUSTOMER_ID OR t.ACCOUNT_ID = sa.ACCOUNT_ID)
+        AND sa.IS_PRIMARY_SERVICE = TRUE
     WHERE t.ID = ?
     """
     
-    result = snowflake_conn.execute_query(query, [transaction_id])
-    if not result:
-        st.error("Could not load transaction details.")
-        return
+    try:
+        result = conn.execute_query(query, [transaction_id])
+        if result:
+            return dict(result[0])
+        return None
+    except Exception as e:
+        st.error(f"Error loading transaction details: {str(e)}")
+        return None
 
-    transaction = result[0]
+def display_transaction_header(transaction: Dict[str, Any]) -> None:
+    """Display transaction header with key information"""
     
-    # Initialize key variables
-    payment_method_2 = None
-    payment_amount_2 = 0.0
-
-    # Display basic service info
-    st.markdown(f"### {safe_get_row_value(transaction, 'SERVICE_NAME')}")
-    st.markdown(f"**Customer:** {safe_get_row_value(transaction, 'CUSTOMER_NAME')}")
+    # Customer/Account name
+    if transaction.get('CUSTOMER_FIRST_NAME'):
+        customer_name = f"{transaction['CUSTOMER_FIRST_NAME']} {transaction['CUSTOMER_LAST_NAME']}"
+    elif transaction.get('ACCOUNT_NAME'):
+        customer_name = transaction['ACCOUNT_NAME']
+    else:
+        customer_name = "Unknown Customer"
     
-    # Display service address if available
+    # Primary service name (prefer transaction data, fallback to service table)
+    service_name = transaction.get('PRIMARY_SERVICE_NAME') or transaction.get('PRIMARY_SERVICE_TABLE_NAME') or "Unknown Service"
+    
+    # Status badge
+    status = transaction.get('STATUS', 'UNKNOWN')
+    status_colors = {
+        'SCHEDULED': '🟡',
+        'IN_PROGRESS': '🔵', 
+        'COMPLETED': '🟢',
+        'CANCELLED': '🔴'
+    }
+    status_icon = status_colors.get(status, '⚪')
+    
+    st.markdown(f"## {status_icon} {service_name}")
+    st.markdown(f"**Customer:** {customer_name}")
+    st.markdown(f"**Status:** {status}")
+    
+    # Service address
     address_parts = [
-        safe_get_row_value(transaction, 'SERVICE_ADDRESS'),
-        safe_get_row_value(transaction, 'SERVICE_CITY'),
-        safe_get_row_value(transaction, 'SERVICE_STATE'),
-        str(safe_get_row_value(transaction, 'SERVICE_ZIP'))
+        transaction.get('STREET_ADDRESS'),
+        transaction.get('CITY'),
+        transaction.get('STATE'),
+        str(transaction.get('ZIP_CODE')) if transaction.get('ZIP_CODE') else None
     ]
     address = ', '.join(filter(None, address_parts))
     if address:
         st.markdown(f"**Service Address:** {address}")
     
-    notes = safe_get_row_value(transaction, 'COMMENTS')
-    if notes:
-        st.markdown(f"**Notes:** {notes}")
+    # Service date and time
+    service_date = transaction.get('SERVICE_DATE')
+    start_time = transaction.get('START_TIME')
+    if service_date:
+        st.markdown(f"**Service Date:** {format_date(service_date)}")
+    if start_time:
+        st.markdown(f"**Service Time:** {format_time(start_time)}")
+    
+    # Comments
+    comments = transaction.get('COMMENTS')
+    if comments:
+        st.markdown(f"**Notes:** {comments}")
 
-    # Use fixed pricing strategy (no longer user-selectable)
-    # Pricing strategy is now configured in settings only
-
-    # Display base cost information
-    st.markdown("### Services")
+def display_service_breakdown(transaction: Dict[str, Any]) -> float:
+    """Display detailed service breakdown and return total cost"""
     
-    # Get primary service name directly from SERVICE_TRANSACTION table
-    primary_service_name = safe_get_row_value(transaction, 'SERVICE_NAME', 'Unknown Service')
+    st.markdown("### 🛠️ Service Breakdown")
     
-    # Get primary service cost directly from BASE_SERVICE_COST in transaction
-    base_cost = safe_get_float(safe_get_row_value(transaction, 'BASE_SERVICE_COST', 0))
+    total_cost = 0.0
     
+    # Primary Service
+    primary_service_name = transaction.get('PRIMARY_SERVICE_NAME') or transaction.get('PRIMARY_SERVICE_TABLE_NAME') or "Unknown Service"
     
-    # Debug information if in debug mode
-    if st.session_state.get('debug_mode'):
-        st.write("Debug - Transaction data from SERVICE_TRANSACTION table:")
-        debug_data = {
-            'Transaction ID': transaction.get('ID'),
-            'Service Name': transaction.get('SERVICE_NAME'),
-            'Base Service Cost': transaction.get('BASE_SERVICE_COST'),
-            'Amount': transaction.get('AMOUNT'),
-            'Status': transaction.get('STATUS'),
-            'Customer Name': transaction.get('CUSTOMER_NAME'),
-            'Service2 Name': transaction.get('SERVICE2_NAME'),
-            'Service3 Name': transaction.get('SERVICE3_NAME'),
-            'Comments': transaction.get('COMMENTS')
-        }
-        st.json({k: str(v) for k, v in debug_data.items()})
+    # Use BASE_SERVICE_COST from transaction as primary source
+    primary_cost = safe_get_float(transaction.get('BASE_SERVICE_COST', 0))
     
-    # Display primary service with management options
-    col1, col2 = st.columns([4, 1])
+    # If no BASE_SERVICE_COST, fallback to service table cost
+    if primary_cost <= 0:
+        primary_cost = safe_get_float(transaction.get('PRIMARY_SERVICE_TABLE_COST', 0))
+    
+    with st.container():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown(f"**Primary Service:** {primary_service_name}")
+            category = transaction.get('PRIMARY_SERVICE_CATEGORY')
+            if category:
+                st.markdown(f"*Category: {category}*")
+        with col2:
+            st.markdown(f"**${primary_cost:.2f}**")
+    
+    total_cost += primary_cost
+    
+    # Additional Service 2
+    if transaction.get('SERVICE2_ID') and transaction.get('SERVICE2_NAME'):
+        service2_cost = safe_get_float(transaction.get('SERVICE2_COST', 0))
+        
+        with st.container():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.markdown(f"**Additional Service 1:** {transaction['SERVICE2_NAME']}")
+                category = transaction.get('SERVICE2_CATEGORY')
+                if category:
+                    st.markdown(f"*Category: {category}*")
+            with col2:
+                st.markdown(f"**${service2_cost:.2f}**")
+            with col3:
+                if st.button("❌ Remove", key="remove_service2", help="Remove this service"):
+                    if remove_additional_service(transaction['TRANSACTION_ID'], 'SERVICE2_ID'):
+                        st.rerun()
+        
+        total_cost += service2_cost
+    
+    # Additional Service 3
+    if transaction.get('SERVICE3_ID') and transaction.get('SERVICE3_NAME'):
+        service3_cost = safe_get_float(transaction.get('SERVICE3_COST', 0))
+        
+        with st.container():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.markdown(f"**Additional Service 2:** {transaction['SERVICE3_NAME']}")
+                category = transaction.get('SERVICE3_CATEGORY')
+                if category:
+                    st.markdown(f"*Category: {category}*")
+            with col2:
+                st.markdown(f"**${service3_cost:.2f}**")
+            with col3:
+                if st.button("❌ Remove", key="remove_service3", help="Remove this service"):
+                    if remove_additional_service(transaction['TRANSACTION_ID'], 'SERVICE3_ID'):
+                        st.rerun()
+        
+        total_cost += service3_cost
+    
+    # Cost Summary
+    st.markdown("---")
+    col1, col2 = st.columns([3, 1])
     with col1:
-        st.write(f"**Primary Service:** {primary_service_name} - ${base_cost:.2f}")
+        st.markdown("**Subtotal (Services):**")
     with col2:
-        if st.button("ℹ️ Details", key="primary_service_details", help="View service details"):
-            st.info(f"Service: {primary_service_name}\nCost: ${base_cost:.2f}\nStatus: Primary (Cannot be removed)")
+        st.markdown(f"**${total_cost:.2f}**")
     
-    total_cost = base_cost
+    # Material costs if any
+    material_cost = safe_get_float(transaction.get('MATERIAL_COST', 0))
+    if material_cost > 0:
+        with st.columns([3, 1]) as cols:
+            cols[0].markdown("**Materials:**")
+            cols[1].markdown(f"**${material_cost:.2f}**")
+        total_cost += material_cost
     
-    # Show additional services with individual management options
-    service2_name = safe_get_row_value(transaction, 'SERVICE2_NAME')
-    if service2_name:
-        service2_cost = safe_get_float(safe_get_row_value(transaction, 'SERVICE2_COST', 0))
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.write(f"**Additional Service 1:** {service2_name} - ${service2_cost:.2f}")
-        with col2:
-            if st.button("❌ Remove", key="remove_service2", help="Remove this service from the transaction"):
-                if st.session_state.get('confirm_remove_service2'):
-                    # Remove service2 from database
-                    try:
-                        update_query = """
-                        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
-                        SET SERVICE2_ID = NULL,
-                            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
-                        WHERE ID = ?
-                        """
-                        snowflake_conn.execute_query(update_query, [transaction_id])
-                        st.success(f"Removed {service2_name} from the transaction")
-                        st.session_state.pop('confirm_remove_service2', None)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed to remove service: {str(e)}")
-                else:
-                    st.session_state.confirm_remove_service2 = True
-                    st.warning(f"Click again to confirm removal of {service2_name}")
-                    st.rerun()
-        
-        if not st.session_state.get('confirm_remove_service2'):
-            total_cost += service2_cost
-        
-    service3_name = safe_get_row_value(transaction, 'SERVICE3_NAME')
-    if service3_name:
-        service3_cost = safe_get_float(safe_get_row_value(transaction, 'SERVICE3_COST', 0))
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.write(f"**Additional Service 2:** {service3_name} - ${service3_cost:.2f}")
-        with col2:
-            if st.button("❌ Remove", key="remove_service3", help="Remove this service from the transaction"):
-                if st.session_state.get('confirm_remove_service3'):
-                    # Remove service3 from database
-                    try:
-                        update_query = """
-                        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
-                        SET SERVICE3_ID = NULL,
-                            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
-                        WHERE ID = ?
-                        """
-                        snowflake_conn.execute_query(update_query, [transaction_id])
-                        st.success(f"Removed {service3_name} from the transaction")
-                        st.session_state.pop('confirm_remove_service3', None)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed to remove service: {str(e)}")
-                else:
-                    st.session_state.confirm_remove_service3 = True
-                    st.warning(f"Click again to confirm removal of {service3_name}")
-                    st.rerun()
-        
-        if not st.session_state.get('confirm_remove_service3'):
-            total_cost += service3_cost
-
-    # Employee Assignment
-    st.markdown("### Employee Assignment")
-    employees_df = fetch_employees()
-    selected_employees = st.multiselect(
-        "Assign Employees",
-        options=employees_df["FULL_NAME"].tolist(),
-        default=st.session_state.get('selected_employees', []),
-        help="Select employees who performed the service"
-    )
-    st.session_state.selected_employees = selected_employees
-
-    # Fixed pricing strategy - no labor/material cost inputs needed
-
-    # Calculate subtotal (fixed pricing)
-    subtotal = total_cost
-
-    # Price adjustment section
-    st.markdown("### Price Adjustment")
-    col1, col2 = st.columns(2)
+    # Labor costs if separate
+    labor_cost = safe_get_float(transaction.get('TOTAL_LABOR_COST', 0))
+    if labor_cost > 0 and labor_cost != total_cost:
+        with st.columns([3, 1]) as cols:
+            cols[0].markdown("**Labor:**")
+            cols[1].markdown(f"**${labor_cost:.2f}**")
+    
+    # Final total
+    final_amount = safe_get_float(transaction.get('TOTAL_AMOUNT', total_cost))
+    
+    st.markdown("---")
+    col1, col2 = st.columns([3, 1])
     with col1:
-        adjustment_type = st.radio(
-            "Adjustment Type",
-            ["None", "Discount", "Additional Charge"]
-        )
+        st.markdown("### **Total Amount:**")
+    with col2:
+        st.markdown(f"### **${final_amount:.2f}**")
     
-    adjustment_amount = 0.0
-    if adjustment_type != "None":
-        with col2:
-            adjustment_amount = st.number_input(
-                f"Amount to {'subtract' if adjustment_type == 'Discount' else 'add'}",
-                min_value=0.0,
-                max_value=float(subtotal) if adjustment_type == "Discount" else 1000.0,
-                step=5.0,
-                help="Enter amount in dollars"
-            )
-            if adjustment_type == "Discount":
-                adjustment_amount = -adjustment_amount
+    return final_amount
 
-    # Calculate final price
-    final_price = subtotal + adjustment_amount
+def display_payment_information(transaction: Dict[str, Any]) -> None:
+    """Display payment and deposit information"""
     
-    # Display price breakdown
-    st.markdown("### Price Breakdown")
-    st.write(f"Base Services Cost: ${float(total_cost):.2f}")
-    st.write(f"Subtotal: ${subtotal:.2f}")
+    st.markdown("### 💳 Payment Information")
     
-    if adjustment_amount != 0:
-        if adjustment_amount < 0:
-            st.write(f"Discount Applied: -${abs(adjustment_amount):.2f}")
+    total_amount = safe_get_float(transaction.get('TOTAL_AMOUNT', 0))
+    deposit = safe_get_float(transaction.get('DEPOSIT', 0))
+    deposit_paid = safe_get_bool(transaction.get('DEPOSIT_PAID', False))
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"**Total Amount:** ${total_amount:.2f}")
+        if deposit > 0:
+            st.markdown(f"**Deposit Required:** ${deposit:.2f}")
+            status = "✅ Paid" if deposit_paid else "❌ Pending"
+            st.markdown(f"**Deposit Status:** {status}")
+        
+        balance = total_amount - (deposit if deposit_paid else 0)
+        if balance > 0:
+            st.markdown(f"**Remaining Balance:** ${balance:.2f}")
+    
+    with col2:
+        # Payment actions
+        if not deposit_paid and deposit > 0:
+            if st.button("Mark Deposit as Paid", type="primary"):
+                if mark_deposit_paid(transaction['TRANSACTION_ID']):
+                    st.success("Deposit marked as paid!")
+                    st.rerun()
+
+def display_employee_assignment(transaction: Dict[str, Any]) -> None:
+    """Display employee assignment section"""
+    
+    st.markdown("### 👷 Employee Assignment")
+    
+    # Get available employees
+    conn = SnowflakeConnection.get_instance()
+    employees_query = """
+    SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, JOB_TITLE
+    FROM OPERATIONAL.CARPET.EMPLOYEE
+    WHERE ACTIVE_STATUS = TRUE
+    ORDER BY FIRST_NAME, LAST_NAME
+    """
+    
+    try:
+        employees = conn.execute_query(employees_query)
+        if employees:
+            employee_options = {f"{emp['FIRST_NAME']} {emp['LAST_NAME']} ({emp['JOB_TITLE']})": emp['EMPLOYEE_ID'] 
+                              for emp in employees}
+            
+            selected_employee = st.selectbox(
+                "Assign Employee",
+                options=["None"] + list(employee_options.keys()),
+                help="Select an employee to assign to this service"
+            )
+            
+            if selected_employee != "None":
+                st.button("Assign Employee", type="secondary")
         else:
-            st.write(f"Additional Charge: ${adjustment_amount:.2f}")
-            
-    deposit = safe_get_float(safe_get_row_value(transaction, 'DEPOSIT', 0))
-    if deposit > 0:
-        st.write(f"Deposit Paid: ${deposit:.2f}")
-    
-    st.markdown(f"**Final Price: ${final_price:.2f}**")
-    
-    # Payment Collection Section
-    amount_due = final_price - deposit
-    payment_amount_1 = 0.0
-    payment_method_1 = "Select Method"
-    
-    if amount_due > 0:
-        st.markdown("### Payment Collection")
-        st.write(f"**Amount to Collect: ${amount_due:.2f}**")
-        
-        payment_method_1 = st.selectbox(
-            "Payment Method",
-            ["Select Method", "Cash", "Credit Card", "Check", "Digital Payment"],
-            index=["Select Method", "Cash", "Credit Card", "Check", "Digital Payment"].index(
-                st.session_state.get('payment_method_1', "Select Method")
-            )
-        )
-        st.session_state.payment_method_1 = payment_method_1
-        
-        payment_amount_1 = st.number_input(
-            "Amount",
-            min_value=0.0,
-            max_value=amount_due,
-            value=float(st.session_state.get('payment_amount_1', 0.0))
-        )
-        st.session_state.payment_amount_1 = payment_amount_1
+            st.info("No employees available for assignment")
+    except Exception as e:
+        st.error(f"Error loading employees: {str(e)}")
 
-        # Handle split payment
-        remaining_after_first = amount_due - payment_amount_1
-        if remaining_after_first > 0:
-            use_split = st.checkbox("Split Payment into Two Methods")
-            
-            if use_split:
-                st.write(f"**Remaining to Collect: ${remaining_after_first:.2f}**")
-                payment_method_2 = st.selectbox(
-                    "Second Payment Method",
-                    ["Select Method", "Cash", "Credit Card", "Check", "Digital Payment"]
-                )
-                
-                payment_amount_2 = st.number_input(
-                    "Amount",
-                    min_value=0.0,
-                    max_value=remaining_after_first,
-                    value=remaining_after_first if payment_method_2 != "Select Method" else 0.0
-                )
-
-    # Notes Section
-    st.markdown("### Notes")
-    transaction_notes = st.text_area(
-        "Transaction Notes",
-        value=safe_get_row_value(transaction, 'COMMENTS', ''),
-        help="Add any additional notes about the service"
-    )
-
-    # Action Buttons
-    col1, col2 = st.columns(2)
+def display_service_actions(transaction: Dict[str, Any]) -> None:
+    """Display service action buttons based on status"""
+    
+    st.markdown("### ⚡ Service Actions")
+    
+    status = transaction.get('STATUS', '')
+    transaction_id = transaction['TRANSACTION_ID']
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        if st.button("Complete Transaction", type="primary", use_container_width=True):
-            if not selected_employees:
-                st.error("Please assign at least one employee")
-                return
-                    
-            if amount_due > 0 and payment_method_1 == "Select Method":
-                st.error("Please select a payment method")
-                return
-            
-            # Prepare price adjustments JSON
-            price_adjustments = {
-                'base_cost': float(total_cost),
-                'adjustment_amount': float(adjustment_amount),
-                'final_price': float(final_price)
-            }
-                    
-            # Update transaction
-            update_query = """
-            UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
-            SET 
-                STATUS = 'COMPLETED',
-                COMPLETION_DATE = CURRENT_DATE(),
-                AMOUNT = ?,
-                PYMT_MTHD_1 = ?,
-                PYMT_MTHD_1_AMT = ?,
-                PYMT_MTHD_2 = ?,
-                PYMT_MTHD_2_AMT = ?,
-                EMPLOYEE1_ID = ?,
-                EMPLOYEE2_ID = ?,
-                EMPLOYEE3_ID = ?,
-                END_TIME = ?,
-                COMMENTS = ?,
-                PRICE_ADJUSTMENTS_JSON = ?,
-                LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
-            WHERE ID = ?
-            """
-            
-            try:
-                # Prepare email data
-                email_data = {
-                    'customer_name': safe_get_row_value(transaction, 'CUSTOMER_NAME'),
-                    'customer_email': safe_get_row_value(transaction, 'CUSTOMER_EMAIL'),
-                    'service_name': safe_get_row_value(transaction, 'SERVICE_NAME'),
-                    'service_date': selected_service['SERVICE_DATE'],
-                    'final_amount': final_price,
-                    'payment_method': payment_method_1,
-                    'payment_amount': payment_amount_1,
-                    'second_payment_method': payment_method_2 if payment_method_2 and payment_method_2 != "Select Method" else None,
-                    'second_payment_amount': payment_amount_2,
-                    'service_address': address,
-                    'notes': transaction_notes,
-                    'employees': selected_employees
-                }
-                
-                params = [
-                    final_price,
-                    payment_method_1 if payment_method_1 != "Select Method" else None,
-                    payment_amount_1,
-                    payment_method_2 if payment_method_2 and payment_method_2 != "Select Method" else None,
-                    payment_amount_2,
-                    get_employee_by_name(selected_employees[0]) if len(selected_employees) > 0 else None,
-                    get_employee_by_name(selected_employees[1]) if len(selected_employees) > 1 else None,
-                    get_employee_by_name(selected_employees[2]) if len(selected_employees) > 2 else None,
-                    datetime.now().time().strftime('%H:%M:%S'),
-                    transaction_notes,
-                    json.dumps(price_adjustments),
-                    transaction_id
-                ]
-                
-                snowflake_conn.execute_query(update_query, params)
-                
-                # Send completion email
-                try:
-                    email_sent = send_completion_email(email_data, selected_service)
-                    if email_sent:
-                        st.success("Transaction completed and confirmation email sent!")
-                    else:
-                        st.success("Transaction completed successfully!")
-                        st.warning("Note: Confirmation email could not be sent.")
-                except Exception as e:
-                    print(f"Error sending email: {str(e)}")
-                    st.success("Transaction completed successfully!")
-                    st.warning("Unable to send confirmation email, but service was scheduled successfully.")
-                
-                # Clear session state
-                keys_to_clear = [
-                    'service_start_time', 'selected_service', 'selected_employees',
-                    'payment_method_1', 'payment_amount_1', 'payment_method_2',
-                    'payment_amount_2', 'transaction_notes'
-                ]
-                for key in keys_to_clear:
-                    st.session_state.pop(key, None)
-                
-                st.session_state['page'] = 'completed_services'
-                st.rerun()
-                
-            except Exception as e:
-                print(f"Error completing transaction: {str(e)}")
-                st.error(f"Failed to complete transaction: {str(e)}")
-                
+        if status == 'SCHEDULED':
+            if st.button("🚀 Start Service", type="primary", use_container_width=True):
+                if update_service_status(transaction_id, 'IN_PROGRESS'):
+                    st.success("Service started!")
+                    st.rerun()
+    
     with col2:
-        if st.button("Cancel", type="secondary", use_container_width=True):
-            # Clear session state
-            keys_to_clear = [
-                'service_start_time', 
-                'selected_service', 
-                'selected_employees',
-                'payment_method_1', 
-                'payment_amount_1', 
-                'payment_method_2',
-                'payment_amount_2', 
-                'transaction_notes'
-            ]
-            
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    st.session_state.pop(key, None)
-                
-            st.session_state['page'] = 'scheduled_services'
+        if status == 'IN_PROGRESS':
+            if st.button("✅ Complete Service", type="primary", use_container_width=True):
+                if update_service_status(transaction_id, 'COMPLETED'):
+                    st.success("Service completed!")
+                    st.rerun()
+    
+    with col3:
+        if status in ['SCHEDULED', 'IN_PROGRESS']:
+            if st.button("❌ Cancel Service", type="secondary", use_container_width=True):
+                if st.session_state.get('confirm_cancel'):
+                    if update_service_status(transaction_id, 'CANCELLED'):
+                        st.success("Service cancelled!")
+                        st.rerun()
+                else:
+                    st.session_state.confirm_cancel = True
+                    st.warning("Click again to confirm cancellation")
+                    st.rerun()
+    
+    with col4:
+        if st.button("📧 Send Update", type="secondary", use_container_width=True):
+            send_customer_update(transaction)
+
+def display_debug_information(transaction: Dict[str, Any]) -> None:
+    """Display debug information if debug mode is enabled"""
+    
+    if st.session_state.get('debug_mode', False):
+        st.markdown("### 🐛 Debug Information")
+        
+        with st.expander("Raw Transaction Data"):
+            st.json({k: str(v) for k, v in transaction.items()})
+        
+        with st.expander("Pricing Analysis"):
+            st.write("BASE_SERVICE_COST:", transaction.get('BASE_SERVICE_COST'))
+            st.write("TOTAL_AMOUNT:", transaction.get('TOTAL_AMOUNT'))
+            st.write("PRIMARY_SERVICE_TABLE_COST:", transaction.get('PRIMARY_SERVICE_TABLE_COST'))
+            st.write("SERVICE2_COST:", transaction.get('SERVICE2_COST'))
+            st.write("SERVICE3_COST:", transaction.get('SERVICE3_COST'))
+
+# Helper functions
+def remove_additional_service(transaction_id: int, service_field: str) -> bool:
+    """Remove an additional service from the transaction"""
+    conn = SnowflakeConnection.get_instance()
+    
+    query = f"""
+    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+    SET {service_field} = NULL,
+        LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+    WHERE ID = ?
+    """
+    
+    try:
+        conn.execute_query(query, [transaction_id])
+        return True
+    except Exception as e:
+        st.error(f"Error removing service: {str(e)}")
+        return False
+
+def mark_deposit_paid(transaction_id: int) -> bool:
+    """Mark deposit as paid"""
+    conn = SnowflakeConnection.get_instance()
+    
+    query = """
+    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+    SET DEPOSIT_PAID = TRUE,
+        LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+    WHERE ID = ?
+    """
+    
+    try:
+        conn.execute_query(query, [transaction_id])
+        return True
+    except Exception as e:
+        st.error(f"Error updating deposit status: {str(e)}")
+        return False
+
+def update_service_status(transaction_id: int, new_status: str) -> bool:
+    """Update service status"""
+    conn = SnowflakeConnection.get_instance()
+    
+    query = """
+    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+    SET STATUS = ?,
+        LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+    WHERE ID = ?
+    """
+    
+    try:
+        conn.execute_query(query, [new_status, transaction_id])
+        return True
+    except Exception as e:
+        st.error(f"Error updating service status: {str(e)}")
+        return False
+
+def send_customer_update(transaction: Dict[str, Any]) -> None:
+    """Send customer update (placeholder)"""
+    st.info("Customer update functionality would be implemented here")
+
+def transaction_details_page():
+    """Main transaction details page"""
+    
+    st.title("📋 Service Transaction Details")
+    
+    # Get transaction ID from session state
+    selected_service = st.session_state.get('selected_service')
+    if not selected_service:
+        st.error("No service selected. Please select a service from scheduled services.")
+        if st.button("← Back to Scheduled Services"):
+            st.session_state.page = 'scheduled'
             st.rerun()
+        return
+    
+    transaction_id = safe_get_int(selected_service.get('TRANSACTION_ID'))
+    if not transaction_id:
+        st.error("Could not determine transaction ID. Please try selecting the service again.")
+        if st.button("← Back to Scheduled Services"):
+            st.session_state.page = 'scheduled'
+            st.rerun()
+        return
+    
+    # Load transaction details
+    transaction = get_transaction_details(transaction_id)
+    if not transaction:
+        st.error("Could not load transaction details.")
+        if st.button("← Back to Scheduled Services"):
+            st.session_state.page = 'scheduled'
+            st.rerun()
+        return
+    
+    # Navigation
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("← Back", use_container_width=True):
+            st.session_state.page = 'scheduled'
+            st.rerun()
+    
+    # Display all sections
+    display_transaction_header(transaction)
+    
+    st.markdown("---")
+    total_cost = display_service_breakdown(transaction)
+    
+    st.markdown("---")
+    display_payment_information(transaction)
+    
+    st.markdown("---")
+    display_employee_assignment(transaction)
+    
+    st.markdown("---")
+    display_service_actions(transaction)
+    
+    # Debug information (if enabled)
+    display_debug_information(transaction)
 
 if __name__ == "__main__":
-    transaction_details_page()
+    new_transaction_details_page()
