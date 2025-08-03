@@ -40,12 +40,8 @@ def transaction_details_page():
         st.error("No service selected. Please select a service from scheduled services.")
         return
 
-    # Try different ways to get the transaction ID
-    transaction_id = None
-    transaction_id = (
-        safe_get_int(selected_service.get('TRANSACTION_ID')) or 
-        safe_get_int(selected_service.get('ID'))
-    )
+    # Get the transaction ID from session state
+    transaction_id = safe_get_int(selected_service.get('TRANSACTION_ID'))
     
     if not transaction_id:
         st.error("Could not determine transaction ID. Please try selecting the service again.")
@@ -54,7 +50,7 @@ def transaction_details_page():
             st.write("Debug - selected_service content:", st.session_state.get('selected_service', 'Not found'))
         return
 
-    # Get transaction details
+    # Get transaction details directly from SERVICE_TRANSACTION table
     query = """
     SELECT 
         t.ID,
@@ -74,12 +70,11 @@ def transaction_details_page():
         t.MARKUP_PERCENTAGE,
         t.PRICE_ADJUSTMENTS_JSON,
         t.AMOUNT,
+        t.SERVICE_DATE,
+        t.END_TIME,
         COALESCE(c.FIRST_NAME || ' ' || c.LAST_NAME, a.ACCOUNT_NAME) as CUSTOMER_NAME,
         c.EMAIL_ADDRESS as CUSTOMER_EMAIL,
-        -- Use SERVICE_NAME from transaction as primary, fallback to service table join
-        COALESCE(t.SERVICE_NAME, s1.SERVICE_NAME) as PRIMARY_SERVICE_NAME,
-        COALESCE(s1.SERVICE_DURATION, 60) as PRIMARY_DURATION,
-        COALESCE(s1.COST, t.BASE_SERVICE_COST) as PRIMARY_SERVICE_COST,
+        -- Service names from SERVICES table joins for additional services
         s2.SERVICE_NAME as SERVICE2_NAME,
         s2.COST as SERVICE2_COST,
         s3.SERVICE_NAME as SERVICE3_NAME,
@@ -91,10 +86,9 @@ def transaction_details_page():
     FROM OPERATIONAL.CARPET.SERVICE_TRANSACTION t
     LEFT JOIN OPERATIONAL.CARPET.CUSTOMER c ON t.CUSTOMER_ID = c.CUSTOMER_ID
     LEFT JOIN OPERATIONAL.CARPET.ACCOUNTS a ON t.ACCOUNT_ID = a.ACCOUNT_ID
-    LEFT JOIN OPERATIONAL.CARPET.SERVICES s1 ON t.SERVICE_ID = s1.SERVICE_ID
     LEFT JOIN OPERATIONAL.CARPET.SERVICES s2 ON t.SERVICE2_ID = s2.SERVICE_ID
     LEFT JOIN OPERATIONAL.CARPET.SERVICES s3 ON t.SERVICE3_ID = s3.SERVICE_ID
-    LEFT JOIN OPERATIONAL.CARPET.SERVICE_ADDRESSES sa ON t.CUSTOMER_ID = sa.CUSTOMER_ID
+    LEFT JOIN OPERATIONAL.CARPET.SERVICE_ADDRESSES sa ON t.CUSTOMER_ID = sa.CUSTOMER_ID AND sa.IS_PRIMARY_SERVICE = TRUE
     WHERE t.ID = ?
     """
     
@@ -134,42 +128,101 @@ def transaction_details_page():
     # Display base cost information
     st.markdown("### Services")
     
-    # Get primary service name from the enhanced query
-    primary_service_name = safe_get_row_value(transaction, 'PRIMARY_SERVICE_NAME', 'Unknown Service')
+    # Get primary service name directly from SERVICE_TRANSACTION table
+    primary_service_name = safe_get_row_value(transaction, 'SERVICE_NAME', 'Unknown Service')
     
-    # Get primary service cost - try PRIMARY_SERVICE_COST first, then BASE_SERVICE_COST, then AMOUNT
-    base_cost = (
-        safe_get_float(safe_get_row_value(transaction, 'PRIMARY_SERVICE_COST', 0)) or
-        safe_get_float(safe_get_row_value(transaction, 'BASE_SERVICE_COST', 0)) or
-        safe_get_float(safe_get_row_value(transaction, 'AMOUNT', 0))
-    )
+    # Get primary service cost directly from BASE_SERVICE_COST in transaction
+    base_cost = safe_get_float(safe_get_row_value(transaction, 'BASE_SERVICE_COST', 0))
     
     
     # Debug information if in debug mode
     if st.session_state.get('debug_mode'):
-        st.write("Debug - Transaction fields:")
-        st.json({k: str(v) for k, v in transaction.items() if 'SERVICE' in k.upper()})
-        st.write("Debug - Selected service from session:")
-        if 'selected_service' in st.session_state:
-            st.json({k: str(v) for k, v in st.session_state.selected_service.items()})
-        st.write(f"Debug - Using transaction_id: {transaction_id}")
+        st.write("Debug - Transaction data from SERVICE_TRANSACTION table:")
+        debug_data = {
+            'Transaction ID': transaction.get('ID'),
+            'Service Name': transaction.get('SERVICE_NAME'),
+            'Base Service Cost': transaction.get('BASE_SERVICE_COST'),
+            'Amount': transaction.get('AMOUNT'),
+            'Status': transaction.get('STATUS'),
+            'Customer Name': transaction.get('CUSTOMER_NAME'),
+            'Service2 Name': transaction.get('SERVICE2_NAME'),
+            'Service3 Name': transaction.get('SERVICE3_NAME'),
+            'Comments': transaction.get('COMMENTS')
+        }
+        st.json({k: str(v) for k, v in debug_data.items()})
     
-    st.write(f"Primary Service: {primary_service_name} - ${base_cost:.2f}")
+    # Display primary service with management options
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.write(f"**Primary Service:** {primary_service_name} - ${base_cost:.2f}")
+    with col2:
+        if st.button("ℹ️ Details", key="primary_service_details", help="View service details"):
+            st.info(f"Service: {primary_service_name}\nCost: ${base_cost:.2f}\nStatus: Primary (Cannot be removed)")
     
     total_cost = base_cost
     
-    # Show additional services if present
+    # Show additional services with individual management options
     service2_name = safe_get_row_value(transaction, 'SERVICE2_NAME')
     if service2_name:
         service2_cost = safe_get_float(safe_get_row_value(transaction, 'SERVICE2_COST', 0))
-        st.write(f"Additional Service 1: {service2_name} - ${service2_cost:.2f}")
-        total_cost += service2_cost
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.write(f"**Additional Service 1:** {service2_name} - ${service2_cost:.2f}")
+        with col2:
+            if st.button("❌ Remove", key="remove_service2", help="Remove this service from the transaction"):
+                if st.session_state.get('confirm_remove_service2'):
+                    # Remove service2 from database
+                    try:
+                        update_query = """
+                        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+                        SET SERVICE2_ID = NULL,
+                            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+                        WHERE ID = ?
+                        """
+                        snowflake_conn.execute_query(update_query, [transaction_id])
+                        st.success(f"Removed {service2_name} from the transaction")
+                        st.session_state.pop('confirm_remove_service2', None)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to remove service: {str(e)}")
+                else:
+                    st.session_state.confirm_remove_service2 = True
+                    st.warning(f"Click again to confirm removal of {service2_name}")
+                    st.rerun()
+        
+        if not st.session_state.get('confirm_remove_service2'):
+            total_cost += service2_cost
         
     service3_name = safe_get_row_value(transaction, 'SERVICE3_NAME')
     if service3_name:
         service3_cost = safe_get_float(safe_get_row_value(transaction, 'SERVICE3_COST', 0))
-        st.write(f"Additional Service 2: {service3_name} - ${service3_cost:.2f}")
-        total_cost += service3_cost
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.write(f"**Additional Service 2:** {service3_name} - ${service3_cost:.2f}")
+        with col2:
+            if st.button("❌ Remove", key="remove_service3", help="Remove this service from the transaction"):
+                if st.session_state.get('confirm_remove_service3'):
+                    # Remove service3 from database
+                    try:
+                        update_query = """
+                        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+                        SET SERVICE3_ID = NULL,
+                            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+                        WHERE ID = ?
+                        """
+                        snowflake_conn.execute_query(update_query, [transaction_id])
+                        st.success(f"Removed {service3_name} from the transaction")
+                        st.session_state.pop('confirm_remove_service3', None)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to remove service: {str(e)}")
+                else:
+                    st.session_state.confirm_remove_service3 = True
+                    st.warning(f"Click again to confirm removal of {service3_name}")
+                    st.rerun()
+        
+        if not st.session_state.get('confirm_remove_service3'):
+            total_cost += service3_cost
 
     # Employee Assignment
     st.markdown("### Employee Assignment")

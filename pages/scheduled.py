@@ -6,31 +6,7 @@ from utils.formatting import format_currency, format_date, format_time, add_back
 from database.connection import SnowflakeConnection
 from utils.null_handling import safe_get_float, safe_get_int, safe_get_string, safe_get_bool
 
-def store_service_session_data(row: pd.Series) -> None:
-    """
-    Safely store service data in session state with proper null handling.
-    
-    Args:
-        row: DataFrame row containing service information
-    """
-    st.session_state['selected_service'] = {
-        'TRANSACTION_ID': safe_get_int(row['TRANSACTION_ID']),
-        'SERVICE_ID': safe_get_int(row['SERVICE_ID']),  # This was previously allowing None
-        'CUSTOMER_OR_ACCOUNT_ID': (
-            safe_get_int(row['ACCOUNT_ID']) if pd.notnull(row['ACCOUNT_ID']) 
-            else safe_get_int(row['CUSTOMER_ID'])
-        ),
-        'CUSTOMER_NAME': safe_get_string(row['CUSTOMER_NAME']),
-        'SERVICE_NAME': safe_get_string(row['SERVICE_NAME']),
-        'SERVICE_DATE': row['SERVICE_DATE'],
-        'SERVICE_TIME': row['START_TIME'],
-        'NOTES': safe_get_string(row['COMMENTS']),
-        'DEPOSIT': safe_get_float(row['DEPOSIT']),
-        'DEPOSIT_PAID': safe_get_bool(row['DEPOSIT_PAID']),
-        'COST': safe_get_float(row['BASE_SERVICE_COST']),
-    }
-    st.session_state['service_start_time'] = datetime.now().time()
-    st.session_state['page'] = 'transaction_details'
+# Removed unused store_service_session_data function - using handle_service_start instead
 
 def update_service_status(snowflake_conn: SnowflakeConnection, transaction_id: int, status: str = 'IN_PROGRESS') -> None:
     """
@@ -71,7 +47,6 @@ def handle_service_start(snowflake_conn: SnowflakeConnection, row: pd.Series) ->
     
     # Store service information in session state
     st.session_state['selected_service'] = {
-        'ID': transaction_id,  # Add ID field
         'TRANSACTION_ID': transaction_id,
         'SERVICE_ID': safe_get_int(row['SERVICE_ID']),
         'CUSTOMER_OR_ACCOUNT_ID': (
@@ -82,7 +57,7 @@ def handle_service_start(snowflake_conn: SnowflakeConnection, row: pd.Series) ->
         'CUSTOMER_NAME': safe_get_string(row['CUSTOMER_NAME']),
         'SERVICE_NAME': safe_get_string(row['SERVICE_NAME']),
         'SERVICE_DATE': row['SERVICE_DATE'],
-        'SERVICE_TIME': row['START_TIME'],
+        'START_TIME': row['START_TIME'],
         'NOTES': safe_get_string(row['COMMENTS']),
         'DEPOSIT': safe_get_float(row['DEPOSIT']),
         'DEPOSIT_PAID': safe_get_bool(row['DEPOSIT_PAID']),

@@ -1448,7 +1448,6 @@ class ServiceScheduler:
             
             # Set transaction in session state for transaction details page
             st.session_state['selected_service'] = {
-                'ID': transaction_id,
                 'TRANSACTION_ID': transaction_id,
                 'CUSTOMER_ID': service_data['customer_id'],
                 'ACCOUNT_ID': service_data['account_id'],

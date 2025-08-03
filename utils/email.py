@@ -161,7 +161,7 @@ def send_completion_email(transaction_data: dict, selected_service: dict) -> boo
             'customer_email': customer.email_address,
             'service_type': selected_service['SERVICE_NAME'],
             'date': selected_service['SERVICE_DATE'].strftime('%Y-%m-%d'),
-            'time': selected_service['SERVICE_TIME'].strftime('%I:%M %p'),
+            'time': selected_service['START_TIME'].strftime('%I:%M %p'),
             'total_cost': float(transaction_data['final_amount']),
             'deposit_amount': float(transaction_data['deposit']),
             'amount_received': float(transaction_data['amount_received']),

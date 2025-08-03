@@ -34,8 +34,10 @@ def validate_business_registration_data(data: dict) -> list:
         errors.append("Invalid email format")
     
     # Phone validation  
-    if data.get('phone') and not validate_phone(data['phone']):
-        errors.append("Invalid phone number format")
+    if data.get('phone'):
+        is_valid, _ = validate_phone(data['phone'])
+        if not is_valid:
+            errors.append("Invalid phone number format")
     
     # Password validation
     if data.get('password'):
@@ -50,7 +52,7 @@ def validate_business_registration_data(data: dict) -> list:
     # ZIP code validation
     if data.get('zip_code'):
         zip_sanitized = sanitize_zip_code(data['zip_code'])
-        if not zip_sanitized or len(zip_sanitized) != 5:
+        if not zip_sanitized:
             errors.append("ZIP code must be 5 digits")
     
     return errors
@@ -114,18 +116,16 @@ def create_employee_record(data: dict, business_id: int) -> Optional[int]:
     try:
         query = """
         INSERT INTO OPERATIONAL.CARPET.EMPLOYEE (
-            BUSINESS_ID,
             FIRST_NAME,
             LAST_NAME,
-            EMAIL_ADDRESS,
+            EMAIL,
             PHONE_NUMBER,
-            ROLE,
-            IS_ACTIVE
-        ) VALUES (?, ?, ?, ?, ?, 'Owner', TRUE)
+            JOB_TITLE,
+            ACTIVE_STATUS
+        ) VALUES (?, ?, ?, ?, 'Owner', TRUE)
         """
         
         snowflake_conn.execute_query(query, [
-            business_id,
             data['first_name'],
             data['last_name'],
             data['email'],
@@ -134,7 +134,7 @@ def create_employee_record(data: dict, business_id: int) -> Optional[int]:
         
         # Get the employee ID
         result = snowflake_conn.execute_query(
-            "SELECT EMPLOYEE_ID FROM OPERATIONAL.CARPET.EMPLOYEE WHERE EMAIL_ADDRESS = ? ORDER BY EMPLOYEE_ID DESC LIMIT 1",
+            "SELECT EMPLOYEE_ID FROM OPERATIONAL.CARPET.EMPLOYEE WHERE EMAIL = ? ORDER BY EMPLOYEE_ID DESC LIMIT 1",
             [data['email']]
         )
         
