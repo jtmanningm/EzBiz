@@ -231,7 +231,7 @@
 #                         # Verify current password
 #                         verify_query = """
 #                         SELECT PASSWORD_HASH
-#                         FROM CUSTOMER_PORTAL_USERS
+#                         FROM OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
 #                         WHERE PORTAL_USER_ID = ?
 #                         """
 #                         result = snowflake_conn.execute_query(verify_query, [
@@ -249,7 +249,7 @@
                         
 #                         # Update password
 #                         update_query = """
-#                         UPDATE CUSTOMER_PORTAL_USERS
+#                         UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
 #                         SET 
 #                             PASSWORD_HASH = ?,
 #                             MODIFIED_AT = CURRENT_TIMESTAMP()
@@ -608,7 +608,7 @@ def profile_page():
                         # Verify current password
                         verify_query = """
                         SELECT PASSWORD_HASH
-                        FROM CUSTOMER_PORTAL_USERS
+                        FROM OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
                         WHERE PORTAL_USER_ID = ?
                         """
                         result = snowflake_conn.execute_query(verify_query, [
@@ -625,7 +625,7 @@ def profile_page():
                         
                         # Update password
                         update_query = """
-                        UPDATE CUSTOMER_PORTAL_USERS
+                        UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
                         SET 
                             PASSWORD_HASH = ?,
                             MODIFIED_AT = CURRENT_TIMESTAMP()

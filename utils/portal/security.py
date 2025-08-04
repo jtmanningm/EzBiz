@@ -18,8 +18,8 @@ def verify_action_token(token: str, token_type: str) -> Tuple[bool, Optional[int
             t.EXPIRES_AT,
             t.IS_USED,
             u.EMAIL_VERIFIED
-        FROM VERIFICATION_TOKENS t
-        JOIN CUSTOMER_PORTAL_USERS u 
+        FROM OPERATIONAL.CARPET.VERIFICATION_TOKENS t
+        JOIN OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS u 
             ON t.PORTAL_USER_ID = u.PORTAL_USER_ID
         WHERE t.TOKEN_ID = ?
         AND t.TOKEN_TYPE = ?

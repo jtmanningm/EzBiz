@@ -44,7 +44,7 @@ def verify_email_page():
     try:
         # Update user verification status
         update_query = """
-        UPDATE CUSTOMER_PORTAL_USERS
+        UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
         SET 
             EMAIL_VERIFIED = TRUE,
             MODIFIED_AT = CURRENT_TIMESTAMP()

@@ -50,7 +50,7 @@ def get_portal_user(user_id: int) -> Optional[PortalUser]:
         EMAIL_VERIFIED,
         CREATED_AT,
         MODIFIED_AT
-    FROM CUSTOMER_PORTAL_USERS
+    FROM OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
     WHERE PORTAL_USER_ID = ?
     """
     
@@ -78,7 +78,7 @@ def get_portal_user_by_email(email: str) -> Optional[PortalUser]:
         EMAIL_VERIFIED,
         CREATED_AT,
         MODIFIED_AT
-    FROM CUSTOMER_PORTAL_USERS
+    FROM OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
     WHERE EMAIL = ?
     """
     
@@ -97,7 +97,7 @@ def update_login_attempt(user_id: int, success: bool) -> bool:
         if success:
             # Reset failed attempts on successful login
             query = """
-            UPDATE CUSTOMER_PORTAL_USERS
+            UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
             SET 
                 FAILED_LOGIN_ATTEMPTS = 0,
                 ACCOUNT_LOCKED = FALSE,
@@ -109,7 +109,7 @@ def update_login_attempt(user_id: int, success: bool) -> bool:
         else:
             # Increment failed attempts and possibly lock account
             query = """
-            UPDATE CUSTOMER_PORTAL_USERS
+            UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
             SET 
                 FAILED_LOGIN_ATTEMPTS = FAILED_LOGIN_ATTEMPTS + 1,
                 ACCOUNT_LOCKED = CASE 
@@ -135,7 +135,7 @@ def update_portal_user(user: PortalUser) -> bool:
     """Update portal user details"""
     try:
         query = """
-        UPDATE CUSTOMER_PORTAL_USERS
+        UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
         SET 
             EMAIL = ?,
             IS_ACTIVE = ?,
@@ -163,7 +163,7 @@ def create_portal_user(
     """Create new portal user"""
     try:
         query = """
-        INSERT INTO CUSTOMER_PORTAL_USERS (
+        INSERT INTO OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS (
             CUSTOMER_ID,
             EMAIL,
             PASSWORD_HASH,

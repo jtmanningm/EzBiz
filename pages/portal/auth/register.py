@@ -62,8 +62,8 @@ def check_existing_portal_user(email: str) -> bool:
     """Check if email is already registered in portal"""
     query = """
     SELECT COUNT(*) as count 
-    FROM CUSTOMER_PORTAL_USERS 
-    WHERE EMAIL = :1 AND IS_ACTIVE = TRUE
+    FROM OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS 
+    WHERE EMAIL = ? AND IS_ACTIVE = TRUE
     """
     try:
         result = snowflake_conn.execute_query(query, [email])
@@ -274,11 +274,11 @@ def register_customer_page():
 
                 # Create portal user
                 portal_query = """
-                INSERT INTO CUSTOMER_PORTAL_USERS (
+                INSERT INTO OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS (
                     CUSTOMER_ID, EMAIL, PASSWORD_HASH,
                     IS_ACTIVE, CREATED_AT
                 )
-                VALUES (:1, :2, :3, TRUE, CURRENT_TIMESTAMP())
+                VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP())
                 """
                 snowflake_conn.execute_query(portal_query, [
                     customer_id, email, hash_password(password)
@@ -286,7 +286,7 @@ def register_customer_page():
                 
                 # Get portal user ID
                 result = snowflake_conn.execute_query(
-                    "SELECT PORTAL_USER_ID FROM CUSTOMER_PORTAL_USERS WHERE CUSTOMER_ID = :1",
+                    "SELECT PORTAL_USER_ID FROM OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS WHERE CUSTOMER_ID = ?",
                     [customer_id]
                 )
                 portal_user_id = result[0]['PORTAL_USER_ID']

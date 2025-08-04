@@ -14,10 +14,10 @@ def generate_verification_token(portal_user_id: int, token_type: str) -> Optiona
         
         # Save token
         query = """
-        INSERT INTO VERIFICATION_TOKENS (
+        INSERT INTO OPERATIONAL.CARPET.VERIFICATION_TOKENS (
             TOKEN_ID, PORTAL_USER_ID, TOKEN_TYPE,
             EXPIRES_AT, CREATED_AT
-        ) VALUES (:1, :2, :3, :4, CURRENT_TIMESTAMP())
+        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP())
         """
         
         snowflake_conn.execute_query(query, [
@@ -42,11 +42,11 @@ def verify_token(token: str, token_type: str) -> Tuple[bool, Optional[int], str]
             t.EXPIRES_AT,
             t.IS_USED,
             u.EMAIL_VERIFIED
-        FROM VERIFICATION_TOKENS t
-        JOIN CUSTOMER_PORTAL_USERS u 
+        FROM OPERATIONAL.CARPET.VERIFICATION_TOKENS t
+        JOIN OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS u 
             ON t.PORTAL_USER_ID = u.PORTAL_USER_ID
-        WHERE t.TOKEN_ID = :1
-        AND t.TOKEN_TYPE = :2
+        WHERE t.TOKEN_ID = ?
+        AND t.TOKEN_TYPE = ?
         """
         
         result = snowflake_conn.execute_query(query, [token, token_type])
@@ -75,11 +75,11 @@ def mark_token_used(token: str) -> bool:
     """Mark a token as used"""
     try:
         query = """
-        UPDATE VERIFICATION_TOKENS
+        UPDATE OPERATIONAL.CARPET.VERIFICATION_TOKENS
         SET 
             IS_USED = TRUE,
             USED_AT = CURRENT_TIMESTAMP()
-        WHERE TOKEN_ID = :1
+        WHERE TOKEN_ID = ?
         """
         
         snowflake_conn.execute_query(query, [token])
@@ -92,11 +92,11 @@ def mark_email_verified(portal_user_id: int) -> bool:
     """Mark user's email as verified"""
     try:
         query = """
-        UPDATE CUSTOMER_PORTAL_USERS
+        UPDATE OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS
         SET 
             EMAIL_VERIFIED = TRUE,
             MODIFIED_AT = CURRENT_TIMESTAMP()
-        WHERE PORTAL_USER_ID = :1
+        WHERE PORTAL_USER_ID = ?
         """
         
         snowflake_conn.execute_query(query, [portal_user_id])
