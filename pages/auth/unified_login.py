@@ -23,6 +23,9 @@ def unified_login_page():
                 return
 
             try:
+                if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Attempting login for email: {email.lower()}")
+                
                 # Try business login first
                 query = """
                 SELECT 
@@ -33,7 +36,13 @@ def unified_login_page():
                 WHERE EMAIL = ?
                 """
                 
+                if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Executing business query")
+                
                 result = snowflake_conn.execute_query(query, [email.lower()])
+                
+                if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Business query result count: {len(result) if result else 0}")
                 
                 if result and len(result) > 0 and verify_password(password, result[0]['PASSWORD_HASH']):
                     if not result[0]['IS_ACTIVE']:
@@ -57,6 +66,9 @@ def unified_login_page():
                         return
 
                 # Try customer login if business login failed
+                if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Business login failed, trying customer login")
+                
                 query = """
                 SELECT 
                     PORTAL_USER_ID,
@@ -67,7 +79,13 @@ def unified_login_page():
                 WHERE EMAIL = ?
                 """
                 
+                if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Executing customer query")
+                
                 result = snowflake_conn.execute_query(query, [email.lower()])
+                
+                if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Customer query result count: {len(result) if result else 0}")
                 
                 if result and len(result) > 0 and verify_password(password, result[0]['PASSWORD_HASH']):
                     if not result[0]['IS_ACTIVE']:
@@ -110,7 +128,10 @@ def unified_login_page():
             except Exception as e:
                 st.error("An error occurred during login")
                 if st.session_state.get('debug_mode'):
+                    st.write(f"🔍 Debug: Login error details: {str(e)}")
                     st.exception(e)
+                else:
+                    st.error(f"Error details: {str(e)}")
                 return
 
     # Registration and reset buttons
