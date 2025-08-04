@@ -1,6 +1,5 @@
 # /pages/business/auth/admin_setup.py
 import streamlit as st
-from utils.auth.auth_utils import validate_password
 from utils.business.business_auth import create_business_user, validate_password
 
 def setup_admin_page():

@@ -598,9 +598,10 @@ def profile_page():
                         return
                         
                     from utils.auth.auth_utils import verify_password
-                    valid, message = validate_password(new_password)
-                    if not valid:
-                        st.error(message)
+                    password_errors = validate_password(new_password)
+                    if password_errors:
+                        for error in password_errors:
+                            st.error(error)
                         return
                         
                     try:

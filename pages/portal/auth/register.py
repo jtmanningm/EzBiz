@@ -241,9 +241,10 @@ def register_customer_page():
                 return
 
             # Validate password strength
-            is_valid, message = validate_password(password)
-            if not is_valid:
-                st.error(message)
+            password_errors = validate_password(password)
+            if password_errors:
+                for error in password_errors:
+                    st.error(error)
                 return
 
             # Check rate limit for registration attempts
