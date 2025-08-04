@@ -91,9 +91,9 @@ def validate_session(session_id: str) -> Optional[Dict]:
             
             # Update last activity
             update_query = """
-            UPDATE CUSTOMER_SESSIONS
+            UPDATE OPERATIONAL.CARPET.CUSTOMER_SESSIONS
             SET LAST_ACTIVITY = CURRENT_TIMESTAMP()
-            WHERE SESSION_ID = :1
+            WHERE SESSION_ID = ?
             """
             snowflake_conn.execute_query(update_query, [session_id])
             
@@ -155,14 +155,14 @@ def check_rate_limit(ip_address: str, action_type: str, portal_user_id: Optional
     query = """
     SELECT COUNT(*) as ATTEMPT_COUNT
     FROM OPERATIONAL.CARPET.RATE_LIMIT_LOG
-    WHERE IP_ADDRESS = :1
-    AND ACTION_TYPE = :2
+    WHERE IP_ADDRESS = ?
+    AND ACTION_TYPE = ?
     AND LAST_ATTEMPT > DATEADD(hour, -1, CURRENT_TIMESTAMP())
     """
     params = [ip_address, action_type]
     
     if portal_user_id:
-        query += " AND PORTAL_USER_ID = :3"
+        query += " AND PORTAL_USER_ID = ?"
         params.append(portal_user_id)
     
     try:
@@ -175,10 +175,10 @@ def check_rate_limit(ip_address: str, action_type: str, portal_user_id: Optional
             
             # Log attempt
             log_query = """
-            INSERT INTO RATE_LIMIT_LOG (
+            INSERT INTO OPERATIONAL.CARPET.RATE_LIMIT_LOG (
                 IP_ADDRESS, ACTION_TYPE, PORTAL_USER_ID
             )
-            SELECT :1, :2, :3
+            SELECT ?, ?, ?
             """
             snowflake_conn.execute_query(log_query, [
                 ip_address, action_type, portal_user_id

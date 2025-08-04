@@ -140,7 +140,7 @@ def check_suspicious_activity(
         # Check for rapid requests from same IP
         rapid_query = """
         SELECT COUNT(*) as request_count
-        FROM SESSION_LOG
+        FROM OPERATIONAL.CARPET.SESSION_LOG
         WHERE IP_ADDRESS = ?
         AND EVENT_TIME > DATEADD(second, -5, CURRENT_TIMESTAMP())
         """
@@ -153,7 +153,7 @@ def check_suspicious_activity(
         if user_id:
             fails_query = """
             SELECT COUNT(*) as fail_count
-            FROM SESSION_LOG
+            FROM OPERATIONAL.CARPET.SESSION_LOG
             WHERE PORTAL_USER_ID = ?
             AND EVENT_TYPE IN ('LOGIN_FAILED', 'VERIFY_FAILED')
             AND EVENT_TIME > DATEADD(minute, -30, CURRENT_TIMESTAMP())

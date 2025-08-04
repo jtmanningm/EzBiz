@@ -46,8 +46,8 @@ def check_existing_customer(email: str, phone: str) -> Tuple[bool, Optional[int]
     """
     query = """
     SELECT CUSTOMER_ID 
-    FROM CUSTOMER 
-    WHERE EMAIL_ADDRESS = :1 OR PHONE_NUMBER = :2
+    FROM OPERATIONAL.CARPET.CUSTOMER 
+    WHERE EMAIL_ADDRESS = ? OR PHONE_NUMBER = ?
     """
     try:
         result = snowflake_conn.execute_query(query, [email, phone])

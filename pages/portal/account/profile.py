@@ -28,7 +28,7 @@
 #             cpu.EMAIL as PORTAL_EMAIL,
 #             cpu.LAST_LOGIN_DATE,
 #             cpu.EMAIL_VERIFIED
-#         FROM CUSTOMER c
+#         FROM OPERATIONAL.CARPET.CUSTOMER c
 #         JOIN CUSTOMER_PORTAL_USERS cpu 
 #             ON c.CUSTOMER_ID = cpu.CUSTOMER_ID
 #         WHERE c.CUSTOMER_ID = ?
@@ -400,7 +400,7 @@ def profile_page():
             cpu.EMAIL AS PORTAL_EMAIL,
             cpu.LAST_LOGIN_DATE,
             cpu.EMAIL_VERIFIED
-        FROM CUSTOMER c
+        FROM OPERATIONAL.CARPET.CUSTOMER c
         JOIN CUSTOMER_PORTAL_USERS cpu 
             ON c.CUSTOMER_ID = cpu.CUSTOMER_ID
         WHERE c.CUSTOMER_ID = ?
