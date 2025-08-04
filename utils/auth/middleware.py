@@ -16,14 +16,24 @@ def is_customer_authenticated() -> bool:
     """Check if customer is authenticated with valid session"""
     session_id = st.session_state.get('customer_session_id')
     if not session_id:
+        if st.secrets.get("environment") == "development":
+            st.write("🔍 Debug: No customer_session_id found")
         return False
+    
+    if st.secrets.get("environment") == "development":
+        st.write(f"🔍 Debug: Validating session {session_id[:8]}...")
     
     # Validate session
     session_data = validate_session(session_id)
     if not session_data:
         # Clear invalid session
+        if st.secrets.get("environment") == "development":
+            st.write("🔍 Debug: Session validation failed, clearing session")
         clear_customer_session("Invalid session")
         return False
+    
+    if st.secrets.get("environment") == "development":
+        st.write(f"🔍 Debug: Session valid for customer {session_data.get('CUSTOMER_ID')}")
     
     # Update session state with latest data
     st.session_state.customer_id = session_data['CUSTOMER_ID']

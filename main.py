@@ -306,6 +306,11 @@ def main():
     
     current_page = st.session_state.get('page', 'login')
     
+    if st.secrets.get("environment") == "development":
+        st.sidebar.write(f"🔍 Debug: Current page: {current_page}")
+        st.sidebar.write(f"🔍 Debug: Customer session: {'Yes' if 'customer_session_id' in st.session_state else 'No'}")
+        st.sidebar.write(f"🔍 Debug: Business session: {'Yes' if 'business_session_id' in st.session_state else 'No'}")
+    
     # Route to appropriate page
     if current_page in auth_pages:
         # Handle authentication pages

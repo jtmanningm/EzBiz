@@ -306,7 +306,11 @@ def register_customer_page():
                         f"New user registration: {email}"
                     )
 
-                    st.success("Registration successful!")
+                    st.success("Registration successful! Redirecting to your portal...")
+                    if st.secrets.get("environment") == "development":
+                        st.write(f"🔍 Debug: Session created - ID: {session_id[:8]}...")
+                        st.write(f"🔍 Debug: Customer ID: {customer_id}")
+                        st.write(f"🔍 Debug: Portal User ID: {portal_user_id}")
                     st.session_state.page = 'portal_home'
                     st.rerun()
                 else:

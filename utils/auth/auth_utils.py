@@ -86,8 +86,8 @@ def validate_session(session_id: str) -> Optional[Dict]:
     try:
         result = snowflake_conn.execute_query(query, [session_id])
         if result and len(result) > 0:
-            # Convert Row to dict
-            session_data = result[0].as_dict()
+            # Result is already a dict
+            session_data = result[0]
             
             # Update last activity
             update_query = """
