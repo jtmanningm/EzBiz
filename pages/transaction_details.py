@@ -967,6 +967,163 @@ def reset_service_status(transaction_id: int) -> bool:
         st.error(f"Error resetting service status: {str(e)}")
         return False
 
+def display_employee_assignment(transaction: Dict[str, Any]) -> None:
+    """Display employee assignments for this transaction"""
+    
+    st.markdown("### 👷 Employee Assignments")
+    
+    transaction_id = transaction['TRANSACTION_ID']
+    
+    try:
+        # Get employee assignments for this transaction
+        conn = SnowflakeConnection.get_instance()
+        query = """
+        SELECT 
+            sa.ASSIGNMENT_ID,
+            sa.TRANSACTION_ID,
+            sa.EMPLOYEE_ID,
+            sa.ASSIGNMENT_DATE,
+            sa.ASSIGNMENT_STATUS,
+            sa.NOTES,
+            e.FIRST_NAME,
+            e.LAST_NAME,
+            e.EMAIL,
+            e.PHONE_NUMBER
+        FROM OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS sa
+        JOIN OPERATIONAL.CARPET.EMPLOYEE e ON sa.EMPLOYEE_ID = e.EMPLOYEE_ID
+        WHERE sa.TRANSACTION_ID = ?
+        ORDER BY sa.ASSIGNMENT_DATE DESC
+        """
+        
+        assignments = conn.execute_query(query, [transaction_id])
+        
+        if assignments:
+            st.markdown(f"**{len(assignments)} employee(s) assigned to this transaction:**")
+            
+            for assignment in assignments:
+                with st.container():
+                    col1, col2, col3 = st.columns([3, 2, 1])
+                    
+                    with col1:
+                        st.markdown(f"**{assignment['FIRST_NAME']} {assignment['LAST_NAME']}**")
+                        st.markdown(f"📧 {assignment['EMAIL']}")
+                        if assignment['PHONE_NUMBER']:
+                            st.markdown(f"📞 {assignment['PHONE_NUMBER']}")
+                        
+                    with col2:
+                        st.markdown(f"**Status:** {assignment['ASSIGNMENT_STATUS']}")
+                        st.markdown(f"**Assigned:** {assignment['ASSIGNMENT_DATE'].strftime('%m/%d/%Y %I:%M %p')}")
+                        if assignment['NOTES']:
+                            st.markdown(f"**Notes:** {assignment['NOTES']}")
+                    
+                    with col3:
+                        if st.button("Remove", key=f"remove_assignment_{assignment['ASSIGNMENT_ID']}", 
+                                   type="secondary", use_container_width=True):
+                            if remove_employee_assignment(assignment['ASSIGNMENT_ID']):
+                                st.success("Assignment removed!")
+                                st.rerun()
+                    
+                    st.markdown("---")
+        else:
+            st.info("No employees currently assigned to this transaction")
+            
+    except Exception as e:
+        st.error(f"Error loading employee assignments: {str(e)}")
+        
+    # Add assignment button
+    if st.button("➕ Add Employee Assignment", type="primary"):
+        st.session_state.show_employee_assign = f"transaction_{transaction_id}"
+    
+    # Show assignment dialog if requested
+    if st.session_state.get('show_employee_assign') == f"transaction_{transaction_id}":
+        display_employee_assignment_dialog(transaction_id)
+
+def display_employee_assignment_dialog(transaction_id: int) -> None:
+    """Display dialog for assigning employees to a transaction"""
+    
+    st.markdown("### ➕ Assign Employee to Transaction")
+    
+    try:
+        conn = SnowflakeConnection.get_instance()
+        
+        # Get available employees (not already assigned to this transaction)
+        employee_query = """
+        SELECT 
+            e.EMPLOYEE_ID,
+            e.FIRST_NAME,
+            e.LAST_NAME,
+            e.EMAIL
+        FROM OPERATIONAL.CARPET.EMPLOYEE e
+        WHERE e.EMPLOYEE_ID NOT IN (
+            SELECT sa.EMPLOYEE_ID 
+            FROM OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS sa 
+            WHERE sa.TRANSACTION_ID = ?
+        )
+        ORDER BY e.FIRST_NAME, e.LAST_NAME
+        """
+        
+        available_employees = conn.execute_query(employee_query, [transaction_id])
+        
+        if available_employees:
+            # Create employee options
+            employee_options = {
+                f"{emp['FIRST_NAME']} {emp['LAST_NAME']} ({emp['EMAIL']})": emp['EMPLOYEE_ID']
+                for emp in available_employees
+            }
+            
+            with st.form("assign_employee_form"):
+                selected_employee_name = st.selectbox(
+                    "Select Employee:",
+                    options=list(employee_options.keys()),
+                    index=0
+                )
+                
+                assignment_notes = st.text_area(
+                    "Assignment Notes (optional):",
+                    placeholder="Any specific notes about this assignment..."
+                )
+                
+                # Assignment buttons
+                col_assign, col_close = st.columns(2)
+                with col_assign:
+                    if st.form_submit_button("✅ Assign Employee", type="primary", use_container_width=True):
+                        if selected_employee_name:
+                            employee_id = employee_options[selected_employee_name]
+                            if assign_employee_to_transaction(transaction_id, employee_id, assignment_notes):
+                                st.success(f"Employee {selected_employee_name} assigned successfully!")
+                                st.session_state.show_employee_assign = None
+                                st.rerun()
+                
+                with col_close:
+                    if st.form_submit_button("❌ Cancel", use_container_width=True):
+                        st.session_state.show_employee_assign = None
+                        st.rerun()
+        else:
+            st.info("All available employees are already assigned to this transaction")
+            if st.button("❌ Close", use_container_width=True):
+                st.session_state.show_employee_assign = None
+                st.rerun()
+                
+    except Exception as e:
+        st.error(f"Error loading employees: {str(e)}")
+
+def assign_employee_to_transaction(transaction_id: int, employee_id: int, notes: str = "") -> bool:
+    """Assign an employee to a transaction"""
+    conn = SnowflakeConnection.get_instance()
+    
+    query = """
+    INSERT INTO OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS (
+        TRANSACTION_ID, EMPLOYEE_ID, ASSIGNMENT_STATUS, NOTES
+    ) VALUES (?, ?, 'ASSIGNED', ?)
+    """
+    
+    try:
+        conn.execute_query(query, [transaction_id, employee_id, notes])
+        return True
+    except Exception as e:
+        st.error(f"Error assigning employee: {str(e)}")
+        return False
+
 def send_customer_update(transaction: Dict[str, Any]) -> None:
     """Send customer update (placeholder)"""
     st.info("Customer update functionality would be implemented here")
