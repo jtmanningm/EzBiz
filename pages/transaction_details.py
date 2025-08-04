@@ -435,7 +435,8 @@ def display_service_actions(transaction: Dict[str, Any]) -> None:
     status = transaction.get('STATUS', '')
     transaction_id = transaction['TRANSACTION_ID']
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Use 5 columns to fit the reset option
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         if status == 'SCHEDULED':
@@ -477,6 +478,22 @@ def display_service_actions(transaction: Dict[str, Any]) -> None:
                     st.rerun()
     
     with col4:
+        # Reset service option - available for completed, cancelled, or in-progress services
+        if status in ['COMPLETED', 'CANCELLED', 'IN_PROGRESS']:
+            if st.button("🔄 Reset Service", type="secondary", use_container_width=True):
+                if st.session_state.get('confirm_reset'):
+                    if reset_service_status(transaction_id):
+                        st.success("Service reset to scheduled status!")
+                        # Clear confirmation flag
+                        if 'confirm_reset' in st.session_state:
+                            del st.session_state.confirm_reset
+                        st.rerun()
+                else:
+                    st.session_state.confirm_reset = True
+                    st.warning("Click again to confirm reset to SCHEDULED")
+                    st.rerun()
+    
+    with col5:
         if st.button("📧 Send Update", type="secondary", use_container_width=True):
             send_customer_update(transaction)
 
@@ -899,6 +916,55 @@ def remove_employee_assignment(assignment_id: int) -> bool:
         return True
     except Exception as e:
         st.error(f"Error removing assignment: {str(e)}")
+        return False
+
+def update_service_status(transaction_id: int, new_status: str) -> bool:
+    """Update the status of a service transaction"""
+    conn = SnowflakeConnection.get_instance()
+    
+    query = """
+    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+    SET STATUS = ?,
+        MODIFIED_AT = CURRENT_TIMESTAMP()
+    WHERE ID = ?
+    """
+    
+    try:
+        conn.execute_query(query, [new_status, transaction_id])
+        return True
+    except Exception as e:
+        st.error(f"Error updating service status: {str(e)}")
+        return False
+
+def reset_service_status(transaction_id: int) -> bool:
+    """Reset service status back to SCHEDULED and clear completion data"""
+    conn = SnowflakeConnection.get_instance()
+    
+    # Reset status to SCHEDULED and clear any completion timestamps or data
+    query = """
+    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+    SET STATUS = 'SCHEDULED',
+        MODIFIED_AT = CURRENT_TIMESTAMP()
+    WHERE ID = ?
+    """
+    
+    try:
+        conn.execute_query(query, [transaction_id])
+        
+        # Also remove any employee assignments that were specific to the completed service
+        # (Optional - you might want to keep assignments for rescheduled services)
+        # Uncomment the following if you want to clear assignments on reset:
+        """
+        assignment_query = '''
+        DELETE FROM OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS
+        WHERE TRANSACTION_ID = ?
+        '''
+        conn.execute_query(assignment_query, [transaction_id])
+        """
+        
+        return True
+    except Exception as e:
+        st.error(f"Error resetting service status: {str(e)}")
         return False
 
 def send_customer_update(transaction: Dict[str, Any]) -> None:
