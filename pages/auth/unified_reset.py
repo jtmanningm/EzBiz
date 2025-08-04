@@ -137,9 +137,40 @@ def _show_request_form(client_ip: str, user_agent: str):
                         user_info['PORTAL_USER_ID']
                     ])
                     
-                    # For development/testing, show the reset link
-                    if st.session_state.get('debug_mode', True):
-                        st.info(f"🔧 Debug Mode - Reset link available")
+                    # Send password reset email
+                    try:
+                        from utils.email import generate_password_reset_email
+                        from pages.settings.business import fetch_business_info
+                        
+                        # Get business info for email
+                        business_info = fetch_business_info()
+                        if not business_info:
+                            print("No business info available for email")
+                        
+                        # Create reset URL
+                        base_url = st.secrets.get("BASE_URL", "http://localhost:8501")
+                        reset_url = f"{base_url}/?reset_token={token}"
+                        
+                        # Send email
+                        first_name = user_info.get('FIRST_NAME', 'User')
+                        email_result = generate_password_reset_email(
+                            email=email,
+                            first_name=first_name,
+                            reset_url=reset_url,
+                            business_info=business_info or {}
+                        )
+                        
+                        if email_result and email_result.success:
+                            print(f"Password reset email sent successfully to {email}")
+                        else:
+                            print(f"Failed to send password reset email: {email_result.message if email_result else 'Unknown error'}")
+                            
+                    except Exception as email_error:
+                        print(f"Error sending reset email: {str(email_error)}")
+                    
+                    # For development/testing, also show the reset link
+                    if st.session_state.get('debug_mode'):
+                        st.info(f"🔧 Debug Mode - Reset link: {reset_url}")
                         if st.button("🔗 Use Reset Link (Debug)", key="debug_reset"):
                             st.query_params['reset_token'] = token
                             st.rerun()
