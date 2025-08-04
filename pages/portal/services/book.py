@@ -11,6 +11,18 @@ from utils.sms import send_service_notification_sms
 from utils.email import generate_service_scheduled_email
 
 
+def clear_booking_session():
+    """Clear all booking-related session state"""
+    booking_keys = [
+        'booking_step', 'selected_service', 'selected_date', 'selected_time',
+        'selected_address_id', 'is_recurring', 'recurrence_pattern', 'booking_notes',
+        'booking_address'
+    ]
+    for key in booking_keys:
+        if key in st.session_state:
+            del st.session_state[key]
+
+
 def get_client_info() -> str:
     """Get client IP from session state or set default."""
     if 'client_ip' not in st.session_state:
@@ -225,29 +237,63 @@ def book_service_page():
         st.subheader("Select Service Location")
         addresses = fetch_service_addresses(st.session_state.customer_id)
         
-        if not addresses:
-            st.error("No service addresses found. Please contact support to add a service location.")
-            if st.button("Return to Portal Home"):
-                st.session_state.page = 'portal_home'
-                st.rerun()
-            return
-            
-        for address in addresses:
-            with st.container():
-                cols = st.columns([3, 1])
-                with cols[0]:
-                    address_text = f"{address['STREET_ADDRESS']}, {address['CITY']}, {address['STATE']} {address['ZIP_CODE']}"
-                    if address['IS_PRIMARY_SERVICE']:
-                        address_text += " (Primary)"
-                    st.write(f"**{address_text}**")
-                    if address['SQUARE_FOOTAGE']:
-                        st.write(f"Square Footage: {address['SQUARE_FOOTAGE']}")
-                with cols[1]:
-                    if st.button("Select", key=f"addr_{address['ADDRESS_ID']}"):
-                        st.session_state.selected_address_id = address['ADDRESS_ID']
+        # Option to select existing address or enter new one
+        address_option = st.radio(
+            "Choose an option:",
+            ["Use existing address", "Enter new address"] if addresses else ["Enter new address"],
+            key="address_option"
+        )
+        
+        if address_option == "Use existing address" and addresses:
+            st.write("**Select from your saved addresses:**")
+            for address in addresses:
+                with st.container():
+                    cols = st.columns([3, 1])
+                    with cols[0]:
+                        address_text = f"{address['STREET_ADDRESS']}, {address['CITY']}, {address['STATE']} {address['ZIP_CODE']}"
+                        if address['IS_PRIMARY_SERVICE']:
+                            address_text += " (Primary)"
+                        st.write(f"**{address_text}**")
+                        if address['SQUARE_FOOTAGE']:
+                            st.write(f"Square Footage: {address['SQUARE_FOOTAGE']}")
+                    with cols[1]:
+                        if st.button("Select", key=f"addr_{address['ADDRESS_ID']}"):
+                            st.session_state.selected_address_id = address['ADDRESS_ID']
+                            st.session_state.booking_step = 2
+                            st.rerun()
+                    st.markdown("---")
+        
+        elif address_option == "Enter new address":
+            st.write("**Enter service address:**")
+            with st.form("address_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    street_address = st.text_input("Street Address*")
+                    city = st.text_input("City*")
+                with col2:
+                    state = st.text_input("State*", max_chars=2)
+                    zip_code = st.text_input("ZIP Code*")
+                
+                square_footage = st.number_input("Square Footage (optional)", min_value=0, value=0)
+                save_address = st.checkbox("Save this address for future bookings")
+                
+                if st.form_submit_button("Continue with this Address"):
+                    # Validate required fields
+                    if not all([street_address, city, state, zip_code]):
+                        st.error("Please fill in all required address fields")
+                    else:
+                        # Store address info in session state
+                        st.session_state.booking_address = {
+                            'street_address': street_address,
+                            'city': city,
+                            'state': state.upper(),
+                            'zip_code': zip_code,
+                            'square_footage': square_footage if square_footage > 0 else None,
+                            'save_address': save_address
+                        }
+                        st.session_state.selected_address_id = None  # Use new address
                         st.session_state.booking_step = 2
                         st.rerun()
-                st.markdown("---")
 
         if st.button("Cancel Booking", use_container_width=True):
             clear_booking_session()
@@ -420,17 +466,23 @@ def book_service_page():
         service = st.session_state.selected_service
         
         # Get selected address details
-        addresses = fetch_service_addresses(st.session_state.customer_id)
-        selected_address = next(
-            (addr for addr in addresses if addr['ADDRESS_ID'] == st.session_state.selected_address_id),
-            None
-        )
+        if st.session_state.selected_address_id:
+            # Using existing address
+            addresses = fetch_service_addresses(st.session_state.customer_id)
+            selected_address = next(
+                (addr for addr in addresses if addr['ADDRESS_ID'] == st.session_state.selected_address_id),
+                None
+            )
+            address_text = f"{selected_address['STREET_ADDRESS']}, {selected_address['CITY']}, {selected_address['STATE']} {selected_address['ZIP_CODE']}"
+        else:
+            # Using new address from session state
+            booking_address = st.session_state.booking_address
+            address_text = f"{booking_address['street_address']}, {booking_address['city']}, {booking_address['state']} {booking_address['zip_code']}"
         
         # Display booking details
         st.write("### Service Details")
         st.write("**Service Location:**")
-        st.write(f"{selected_address['STREET_ADDRESS']}")
-        st.write(f"{selected_address['CITY']}, {selected_address['STATE']} {selected_address['ZIP_CODE']}")
+        st.write(address_text)
         
         st.write(f"**Service:** {service['SERVICE_NAME']}")
         st.write(f"**Category:** {service['SERVICE_CATEGORY']}")
@@ -481,6 +533,45 @@ def book_service_page():
                                               st.session_state.selected_time) + 
                               timedelta(minutes=service_duration)).time()
                     
+                    # Handle address creation if using new address
+                    address_id = st.session_state.selected_address_id
+                    if not address_id:
+                        # Create new service address
+                        booking_address = st.session_state.booking_address
+                        if booking_address['save_address']:
+                            # Save to database
+                            address_query = """
+                            INSERT INTO OPERATIONAL.CARPET.SERVICE_ADDRESSES (
+                                CUSTOMER_ID, STREET_ADDRESS, CITY, STATE, ZIP_CODE, SQUARE_FOOTAGE
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            """
+                            snowflake_conn.execute_query(address_query, [
+                                st.session_state.customer_id,
+                                booking_address['street_address'],
+                                booking_address['city'],
+                                booking_address['state'],
+                                booking_address['zip_code'],
+                                booking_address['square_footage']
+                            ])
+                            
+                            # Get the created address ID
+                            get_id_query = """
+                            SELECT ADDRESS_ID FROM OPERATIONAL.CARPET.SERVICE_ADDRESSES
+                            WHERE CUSTOMER_ID = ? AND STREET_ADDRESS = ? AND CITY = ? AND STATE = ? AND ZIP_CODE = ?
+                            ORDER BY ADDRESS_ID DESC LIMIT 1
+                            """
+                            result = snowflake_conn.execute_query(get_id_query, [
+                                st.session_state.customer_id,
+                                booking_address['street_address'],
+                                booking_address['city'],
+                                booking_address['state'],
+                                booking_address['zip_code']
+                            ])
+                            address_id = result[0]['ADDRESS_ID'] if result else None
+                        else:
+                            # Use a temporary address ID (we'll handle this in the service transaction)
+                            address_id = None
+                    
                     # Save booking
                     booking_query = """
                     INSERT INTO OPERATIONAL.CARPET.SERVICE_TRANSACTION (
@@ -526,7 +617,7 @@ def book_service_page():
                     snowflake_conn.execute_query(booking_query, [
                         service['SERVICE_ID'],                   # SERVICE_ID
                         st.session_state.customer_id,           # CUSTOMER_ID
-                        st.session_state.selected_address_id,   # ADDRESS_ID
+                        address_id,                             # ADDRESS_ID
                         st.session_state.selected_date,         # TRANSACTION_DATE
                         st.session_state.selected_time,         # TRANSACTION_TIME
                         float(service['COST']),                 # AMOUNT
