@@ -85,7 +85,7 @@
 #             if st.button("Update Profile", type="primary"):
 #                 try:
 #                     update_query = """
-#                     UPDATE CUSTOMER
+#                     UPDATE OPERATIONAL.CARPET.CUSTOMER
 #                     SET 
 #                         FIRST_NAME = ?,
 #                         LAST_NAME = ?,
@@ -155,7 +155,7 @@
 #             if st.button("Update Contact Info", type="primary"):
 #                 try:
 #                     update_query = """
-#                     UPDATE CUSTOMER
+#                     UPDATE OPERATIONAL.CARPET.CUSTOMER
 #                     SET 
 #                         PHONE_NUMBER = ?,
 #                         EMAIL_ADDRESS = ?,
@@ -277,7 +277,7 @@
 #                 MARKETING_SMS,
 #                 APPOINTMENT_REMINDERS,
 #                 PROMOTIONAL_MESSAGES
-#             FROM CUSTOMER_PREFERENCES
+#             FROM OPERATIONAL.CARPET.CUSTOMER_PREFERENCES
 #             WHERE CUSTOMER_ID = ?
 #             """
             
@@ -321,7 +321,7 @@
 #                 try:
 #                     # Upsert preferences
 #                     prefs_query = """
-#                     MERGE INTO CUSTOMER_PREFERENCES
+#                     MERGE INTO OPERATIONAL.CARPET.CUSTOMER_PREFERENCES
 #                     USING (SELECT ? as customer_id) as source
 #                     ON CUSTOMER_PREFERENCES.CUSTOMER_ID = source.customer_id
 #                     WHEN MATCHED THEN
@@ -401,7 +401,7 @@ def profile_page():
             cpu.LAST_LOGIN_DATE,
             cpu.EMAIL_VERIFIED
         FROM OPERATIONAL.CARPET.CUSTOMER c
-        JOIN CUSTOMER_PORTAL_USERS cpu 
+        JOIN OPERATIONAL.CARPET.CUSTOMER_PORTAL_USERS cpu 
             ON c.CUSTOMER_ID = cpu.CUSTOMER_ID
         WHERE c.CUSTOMER_ID = ?
         """
@@ -460,7 +460,7 @@ def profile_page():
                 try:
                     # IMPORTANT: The CUSTOMER table columns are BILLING_ADDRESS, BILLING_CITY, etc.
                     update_query = """
-                    UPDATE CUSTOMER
+                    UPDATE OPERATIONAL.CARPET.CUSTOMER
                     SET 
                         FIRST_NAME = ?,
                         LAST_NAME = ?,
@@ -531,7 +531,7 @@ def profile_page():
             if st.button("Update Contact Info", type="primary"):
                 try:
                     update_query = """
-                    UPDATE CUSTOMER
+                    UPDATE OPERATIONAL.CARPET.CUSTOMER
                     SET 
                         PHONE_NUMBER = ?,
                         EMAIL_ADDRESS = ?,
@@ -655,7 +655,7 @@ def profile_page():
                 MARKETING_SMS,
                 APPOINTMENT_REMINDERS,
                 PROMOTIONAL_MESSAGES
-            FROM CUSTOMER_PREFERENCES
+            FROM OPERATIONAL.CARPET.CUSTOMER_PREFERENCES
             WHERE CUSTOMER_ID = ?
             """
             prefs = snowflake_conn.execute_query(prefs_query, [
@@ -698,7 +698,7 @@ def profile_page():
                 try:
                     # Upsert preferences
                     prefs_query = """
-                    MERGE INTO CUSTOMER_PREFERENCES
+                    MERGE INTO OPERATIONAL.CARPET.CUSTOMER_PREFERENCES
                     USING (SELECT ? as customer_id) as source
                     ON CUSTOMER_PREFERENCES.CUSTOMER_ID = source.customer_id
                     WHEN MATCHED THEN
