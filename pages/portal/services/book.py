@@ -264,41 +264,53 @@ def book_service_page():
                     st.markdown("---")
         
         elif address_option == "Enter new address":
-            st.write("**Enter service address:**")
+            st.write("**Enter service address (optional):**")
             with st.form("address_form"):
                 col1, col2 = st.columns(2)
                 with col1:
-                    street_address = st.text_input("Street Address*")
-                    city = st.text_input("City*")
+                    street_address = st.text_input("Street Address")
+                    city = st.text_input("City")
                 with col2:
-                    state = st.text_input("State*", max_chars=2)
-                    zip_code = st.text_input("ZIP Code*")
+                    state = st.text_input("State", max_chars=2)
+                    zip_code = st.text_input("ZIP Code")
                 
-                square_footage = st.number_input("Square Footage (optional)", min_value=0, value=0)
                 save_address = st.checkbox("Save this address for future bookings")
                 
                 if st.form_submit_button("Continue with this Address"):
-                    # Validate required fields
-                    if not all([street_address, city, state, zip_code]):
-                        st.error("Please fill in all required address fields")
-                    else:
-                        # Store address info in session state
-                        st.session_state.booking_address = {
-                            'street_address': street_address,
-                            'city': city,
-                            'state': state.upper(),
-                            'zip_code': zip_code,
-                            'square_footage': square_footage if square_footage > 0 else None,
-                            'save_address': save_address
-                        }
-                        st.session_state.selected_address_id = None  # Use new address
-                        st.session_state.booking_step = 2
-                        st.rerun()
+                    # Store address info in session state (all fields optional)
+                    st.session_state.booking_address = {
+                        'street_address': street_address.strip() if street_address else '',
+                        'city': city.strip() if city else '',
+                        'state': state.upper().strip() if state else '',
+                        'zip_code': zip_code.strip() if zip_code else '',
+                        'save_address': save_address
+                    }
+                    st.session_state.selected_address_id = None  # Use new address
+                    st.session_state.booking_step = 2
+                    st.rerun()
 
-        if st.button("Cancel Booking", use_container_width=True):
-            clear_booking_session()
-            st.session_state.page = 'portal_home'
-            st.rerun()
+        # Prominent skip section button
+        st.markdown("---")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("🚀 Skip - Continue Without Address", type="primary", use_container_width=True):
+                # Skip address and continue to service selection
+                st.session_state.booking_address = {
+                    'street_address': '',
+                    'city': '',
+                    'state': '',
+                    'zip_code': '',
+                    'save_address': False
+                }
+                st.session_state.selected_address_id = None
+                st.session_state.booking_step = 2
+                st.rerun()
+                
+        with col2:
+            if st.button("Cancel Booking", use_container_width=True):
+                clear_booking_session()
+                st.session_state.page = 'portal_home'
+                st.rerun()
 
     # Step 2: Service Selection
     elif st.session_state.booking_step == 2:
@@ -477,7 +489,15 @@ def book_service_page():
         else:
             # Using new address from session state
             booking_address = st.session_state.booking_address
-            address_text = f"{booking_address['street_address']}, {booking_address['city']}, {booking_address['state']} {booking_address['zip_code']}"
+            address_parts = [
+                booking_address.get('street_address', '').strip(),
+                booking_address.get('city', '').strip(),
+                booking_address.get('state', '').strip(),
+                booking_address.get('zip_code', '').strip()
+            ]
+            # Filter out empty parts
+            non_empty_parts = [part for part in address_parts if part]
+            address_text = ', '.join(non_empty_parts) if non_empty_parts else 'Address not specified'
         
         # Display booking details
         st.write("### Service Details")
@@ -538,20 +558,24 @@ def book_service_page():
                     if not address_id:
                         # Create new service address
                         booking_address = st.session_state.booking_address
-                        if booking_address['save_address']:
-                            # Save to database
+                        if booking_address['save_address'] and any([
+                            booking_address.get('street_address', '').strip(),
+                            booking_address.get('city', '').strip(),
+                            booking_address.get('state', '').strip(),
+                            booking_address.get('zip_code', '').strip()
+                        ]):
+                            # Only save if address has some content
                             address_query = """
                             INSERT INTO OPERATIONAL.CARPET.SERVICE_ADDRESSES (
-                                CUSTOMER_ID, STREET_ADDRESS, CITY, STATE, ZIP_CODE, SQUARE_FOOTAGE
-                            ) VALUES (?, ?, ?, ?, ?, ?)
+                                CUSTOMER_ID, STREET_ADDRESS, CITY, STATE, ZIP_CODE
+                            ) VALUES (?, ?, ?, ?, ?)
                             """
                             snowflake_conn.execute_query(address_query, [
                                 st.session_state.customer_id,
-                                booking_address['street_address'],
-                                booking_address['city'],
-                                booking_address['state'],
-                                booking_address['zip_code'],
-                                booking_address['square_footage']
+                                booking_address.get('street_address', '').strip(),
+                                booking_address.get('city', '').strip(),
+                                booking_address.get('state', '').strip(),
+                                booking_address.get('zip_code', '').strip()
                             ])
                             
                             # Get the created address ID
@@ -562,10 +586,10 @@ def book_service_page():
                             """
                             result = snowflake_conn.execute_query(get_id_query, [
                                 st.session_state.customer_id,
-                                booking_address['street_address'],
-                                booking_address['city'],
-                                booking_address['state'],
-                                booking_address['zip_code']
+                                booking_address.get('street_address', '').strip(),
+                                booking_address.get('city', '').strip(),
+                                booking_address.get('state', '').strip(),
+                                booking_address.get('zip_code', '').strip()
                             ])
                             address_id = result[0]['ADDRESS_ID'] if result else None
                         else:
