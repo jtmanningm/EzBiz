@@ -200,7 +200,7 @@ def display_service_breakdown(transaction: Dict[str, Any]) -> float:
         with col3:
             # Employee assignment for primary service
             if st.button("👷 Assign", key="assign_primary", help="Assign employees", use_container_width=True):
-                st.session_state.show_employee_assign = f"primary_{transaction['SERVICE_ID']}"
+                st.session_state.show_employee_assign = f"primary_{transaction['PRIMARY_SERVICE_ID']}"
         
         with col4:
             st.markdown("🔒", help="Primary service cannot be removed")
