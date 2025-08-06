@@ -198,9 +198,8 @@ def display_service_breakdown(transaction: Dict[str, Any]) -> float:
                         st.rerun()
         
         with col3:
-            # Employee assignment for primary service
-            if st.button("👷 Assign", key="assign_primary", help="Assign employees", use_container_width=True):
-                st.session_state.show_employee_assign = f"primary_{transaction['PRIMARY_SERVICE_ID']}"
+            # Empty column - employee assignment handled in dedicated section
+            st.empty()
         
         with col4:
             st.markdown("🔒", help="Primary service cannot be removed")
@@ -237,9 +236,8 @@ def display_service_breakdown(transaction: Dict[str, Any]) -> float:
                             st.rerun()
             
             with col3:
-                # Employee assignment for service 2
-                if st.button("👷 Assign", key="assign_service2", help="Assign employees", use_container_width=True):
-                    st.session_state.show_employee_assign = f"service2_{transaction['SERVICE2_ID']}"
+                # Empty column - employee assignment handled in dedicated section
+                st.empty()
             
             with col4:
                 if st.button("❌", key="remove_service2", help="Remove this service"):
@@ -284,9 +282,8 @@ def display_service_breakdown(transaction: Dict[str, Any]) -> float:
                             st.rerun()
             
             with col3:
-                # Employee assignment for service 3
-                if st.button("👷 Assign", key="assign_service3", help="Assign employees", use_container_width=True):
-                    st.session_state.show_employee_assign = f"service3_{transaction['SERVICE3_ID']}"
+                # Empty column - employee assignment handled in dedicated section
+                st.empty()
             
             with col4:
                 if st.button("❌", key="remove_service3", help="Remove this service"):
