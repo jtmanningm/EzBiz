@@ -24,6 +24,7 @@ def get_transaction_details(transaction_id: int) -> Optional[Dict[str, Any]]:
         t.SERVICE3_ID,
         t.BASE_SERVICE_COST,
         t.AMOUNT as TOTAL_AMOUNT,
+        t.DISCOUNT,
         t.STATUS,
         t.COMMENTS,
         t.SERVICE_DATE,
@@ -325,8 +326,12 @@ def display_service_breakdown(transaction: Dict[str, Any]) -> float:
             cols[0].markdown("**Labor:**")
             cols[1].markdown(f"**${labor_cost:.2f}**")
     
-    # Final total
-    final_amount = safe_get_float(transaction.get('TOTAL_AMOUNT', total_cost))
+    # Discount section
+    display_discount_section(transaction, total_cost)
+    
+    # Final total (after discount)
+    discount_amount = safe_get_float(transaction.get('DISCOUNT', 0))
+    final_amount = total_cost - discount_amount
     
     st.markdown("---")
     col1, col2 = st.columns([3, 1])
@@ -336,6 +341,130 @@ def display_service_breakdown(transaction: Dict[str, Any]) -> float:
         st.markdown(f"### **${final_amount:.2f}**")
     
     return final_amount
+
+def display_discount_section(transaction: Dict[str, Any], subtotal: float) -> None:
+    """Display discount section with ability to add/modify discounts"""
+    
+    st.markdown("---")
+    
+    current_discount = safe_get_float(transaction.get('DISCOUNT', 0))
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        st.markdown("**💰 Discount:**")
+        
+        # Show current discount if any
+        if current_discount > 0:
+            # Calculate if it's a percentage of subtotal (approximately)
+            discount_percentage = (current_discount / subtotal * 100) if subtotal > 0 else 0
+            if abs(discount_percentage - round(discount_percentage)) < 0.1:  # If close to a round percentage
+                st.markdown(f"*Current: ${current_discount:.2f} (~{discount_percentage:.0f}%)*")
+            else:
+                st.markdown(f"*Current: ${current_discount:.2f}*")
+    
+    with col2:
+        if current_discount > 0:
+            st.markdown(f"**-${current_discount:.2f}**")
+        else:
+            st.markdown("**$0.00**")
+    
+    with col3:
+        if st.button("✏️ Edit", key="edit_discount", help="Add or modify discount", use_container_width=True):
+            st.session_state.show_discount_dialog = True
+    
+    # Show discount dialog
+    if st.session_state.get('show_discount_dialog'):
+        display_discount_dialog(transaction, subtotal)
+
+def display_discount_dialog(transaction: Dict[str, Any], subtotal: float) -> None:
+    """Display dialog for adding/editing discounts"""
+    
+    st.markdown("### 💰 Apply Discount")
+    
+    current_discount = safe_get_float(transaction.get('DISCOUNT', 0))
+    
+    with st.form("discount_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            discount_type = st.radio(
+                "Discount Type:",
+                options=["Fixed Amount", "Percentage"],
+                key="discount_type"
+            )
+        
+        with col2:
+            if discount_type == "Fixed Amount":
+                discount_value = st.number_input(
+                    "Discount Amount ($):",
+                    min_value=0.0,
+                    max_value=subtotal,
+                    value=current_discount,
+                    step=1.0,
+                    key="discount_amount"
+                )
+                calculated_discount = discount_value
+            else:
+                # Calculate current percentage if there's a current discount
+                current_percentage = (current_discount / subtotal * 100) if subtotal > 0 and current_discount > 0 else 0.0
+                
+                discount_percentage = st.number_input(
+                    "Discount Percentage (%):",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=current_percentage,
+                    step=1.0,
+                    key="discount_percentage"
+                )
+                calculated_discount = subtotal * (discount_percentage / 100)
+        
+        # Show preview
+        if calculated_discount > 0:
+            st.markdown(f"**Preview:** ${subtotal:.2f} - ${calculated_discount:.2f} = **${subtotal - calculated_discount:.2f}**")
+        
+        # Form buttons
+        col_apply, col_remove, col_cancel = st.columns(3)
+        
+        with col_apply:
+            if st.form_submit_button("✅ Apply Discount", type="primary", use_container_width=True):
+                if update_discount(transaction['TRANSACTION_ID'], calculated_discount):
+                    st.success(f"Discount of ${calculated_discount:.2f} applied!")
+                    st.session_state.show_discount_dialog = False
+                    st.rerun()
+        
+        with col_remove:
+            if current_discount > 0:
+                if st.form_submit_button("🗑️ Remove", use_container_width=True):
+                    if update_discount(transaction['TRANSACTION_ID'], 0.0):
+                        st.success("Discount removed!")
+                        st.session_state.show_discount_dialog = False
+                        st.rerun()
+        
+        with col_cancel:
+            if st.form_submit_button("❌ Cancel", use_container_width=True):
+                st.session_state.show_discount_dialog = False
+                st.rerun()
+
+def update_discount(transaction_id: int, discount_amount: float) -> bool:
+    """Update the discount amount for a transaction"""
+    conn = SnowflakeConnection.get_instance()
+    
+    query = """
+    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+    SET DISCOUNT = ?,
+        LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+    WHERE ID = ?
+    """
+    
+    try:
+        conn.execute_query(query, [discount_amount, transaction_id])
+        # Recalculate the total after discount change
+        recalculate_transaction_total(transaction_id)
+        return True
+    except Exception as e:
+        st.error(f"Error updating discount: {str(e)}")
+        return False
 
 def display_payment_information(transaction: Dict[str, Any]) -> None:
     """Display payment and deposit information"""
@@ -750,12 +879,22 @@ def update_service_status(transaction_id: int, new_status: str) -> bool:
     """Update service status"""
     conn = SnowflakeConnection.get_instance()
     
-    query = """
-    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
-    SET STATUS = ?,
-        LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
-    WHERE ID = ?
-    """
+    # If completing service, also set completion date
+    if new_status == 'COMPLETED':
+        query = """
+        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+        SET STATUS = ?,
+            COMPLETION_DATE = CURRENT_DATE(),
+            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+        WHERE ID = ?
+        """
+    else:
+        query = """
+        UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
+        SET STATUS = ?,
+            LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
+        WHERE ID = ?
+        """
     
     try:
         conn.execute_query(query, [new_status, transaction_id])
@@ -849,7 +988,7 @@ def update_additional_service_cost(transaction_id: int, service_field: str, new_
     return update_service_cost(transaction_id, cost_field, new_cost)
 
 def recalculate_transaction_total(transaction_id: int) -> bool:
-    """Recalculate the total amount for a transaction"""
+    """Recalculate the total amount for a transaction including discount"""
     conn = SnowflakeConnection.get_instance()
     
     query = """
@@ -857,7 +996,8 @@ def recalculate_transaction_total(transaction_id: int) -> bool:
     SET AMOUNT = COALESCE(BASE_SERVICE_COST, 0) + 
                  COALESCE(SERVICE2_COST, 0) + 
                  COALESCE(SERVICE3_COST, 0) + 
-                 COALESCE(MATERIAL_COST, 0),
+                 COALESCE(MATERIAL_COST, 0) - 
+                 COALESCE(DISCOUNT, 0),
         LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
     WHERE ID = ?
     """
@@ -907,24 +1047,6 @@ def remove_employee_assignment(assignment_id: int) -> bool:
         st.error(f"Error removing assignment: {str(e)}")
         return False
 
-def update_service_status(transaction_id: int, new_status: str) -> bool:
-    """Update the status of a service transaction"""
-    conn = SnowflakeConnection.get_instance()
-    
-    query = """
-    UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
-    SET STATUS = ?,
-        MODIFIED_AT = CURRENT_TIMESTAMP()
-    WHERE ID = ?
-    """
-    
-    try:
-        conn.execute_query(query, [new_status, transaction_id])
-        return True
-    except Exception as e:
-        st.error(f"Error updating service status: {str(e)}")
-        return False
-
 def reset_service_status(transaction_id: int) -> bool:
     """Reset service status back to SCHEDULED and clear completion data"""
     conn = SnowflakeConnection.get_instance()
@@ -933,7 +1055,7 @@ def reset_service_status(transaction_id: int) -> bool:
     query = """
     UPDATE OPERATIONAL.CARPET.SERVICE_TRANSACTION
     SET STATUS = 'SCHEDULED',
-        MODIFIED_AT = CURRENT_TIMESTAMP()
+        LAST_MODIFIED_DATE = CURRENT_TIMESTAMP()
     WHERE ID = ?
     """
     
