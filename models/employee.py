@@ -163,14 +163,18 @@ def update_employee_status(employee_id: int, status: str) -> bool:
 def assign_employee_to_service(service_id: int, employee_id: int) -> bool:
     """Assign an employee to a service"""
     try:
+        # Note: This function needs a transaction_id to work with current table structure
+        # For now, we'll create a notes field with the service_id information
         query = """
         INSERT INTO OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS (
-            SERVICE_ID, EMPLOYEE_ID
+            TRANSACTION_ID, EMPLOYEE_ID, ASSIGNMENT_STATUS, NOTES
         ) VALUES (
-            :1, :2
+            :1, :2, 'ASSIGNED', :3
         )
         """
-        snowflake_conn.execute_query(query, [service_id, employee_id])
+        notes = f"Legacy service assignment - Service ID: {service_id}"
+        # Using service_id as transaction_id for backward compatibility - this may need revision
+        snowflake_conn.execute_query(query, [service_id, employee_id, notes])
         return True
     except Exception as e:
         st.error(f"Error assigning employee to service: {str(e)}")

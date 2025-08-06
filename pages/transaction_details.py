@@ -380,17 +380,15 @@ def display_employee_assignment(transaction: Dict[str, Any]) -> None:
     assignments_query = """
     SELECT 
         sa.ASSIGNMENT_ID,
-        sa.SERVICE_ID,
-        sa.HOURLY_RATE_OVERRIDE,
+        sa.NOTES,
+        sa.ASSIGNMENT_STATUS,
         e.FIRST_NAME,
         e.LAST_NAME,
-        e.JOB_TITLE,
-        s.SERVICE_NAME
+        e.JOB_TITLE
     FROM OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS sa
     JOIN OPERATIONAL.CARPET.EMPLOYEE e ON sa.EMPLOYEE_ID = e.EMPLOYEE_ID
-    LEFT JOIN OPERATIONAL.CARPET.SERVICES s ON sa.SERVICE_ID = s.SERVICE_ID
-    WHERE sa.TRANSACTION_ID = ? AND sa.IS_ACTIVE = TRUE
-    ORDER BY s.SERVICE_NAME, e.FIRST_NAME, e.LAST_NAME
+    WHERE sa.TRANSACTION_ID = ?
+    ORDER BY e.FIRST_NAME, e.LAST_NAME
     """
     
     try:
@@ -399,29 +397,20 @@ def display_employee_assignment(transaction: Dict[str, Any]) -> None:
         if assignments:
             st.markdown("**Current Assignments:**")
             
-            # Group assignments by service
-            service_assignments = {}
+            # Display all assignments for this transaction
             for assignment in assignments:
-                service_name = assignment.get('SERVICE_NAME', 'Unknown Service')
-                if service_name not in service_assignments:
-                    service_assignments[service_name] = []
-                service_assignments[service_name].append(assignment)
-            
-            for service_name, service_assigns in service_assignments.items():
-                st.markdown(f"**{service_name}:**")
-                for assignment in service_assigns:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        employee_name = f"{assignment['FIRST_NAME']} {assignment['LAST_NAME']}"
-                        st.markdown(f"  • {employee_name} ({assignment['JOB_TITLE']})")
-                        if assignment.get('HOURLY_RATE_OVERRIDE'):
-                            st.markdown(f"    *Rate: ${assignment['HOURLY_RATE_OVERRIDE']:.2f}/hr*")
-                    with col2:
-                        if st.button("Remove", key=f"remove_assignment_{assignment['ASSIGNMENT_ID']}", 
-                                   type="secondary", use_container_width=True):
-                            if remove_employee_assignment(assignment['ASSIGNMENT_ID']):
-                                st.success("Assignment removed!")
-                                st.rerun()
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    employee_name = f"{assignment['FIRST_NAME']} {assignment['LAST_NAME']}"
+                    st.markdown(f"  • {employee_name} ({assignment['JOB_TITLE']})")
+                    if assignment.get('NOTES'):
+                        st.markdown(f"    *Notes: {assignment['NOTES']}*")
+                with col2:
+                    if st.button("Remove", key=f"remove_assignment_{assignment['ASSIGNMENT_ID']}", 
+                               type="secondary", use_container_width=True):
+                        if remove_employee_assignment(assignment['ASSIGNMENT_ID']):
+                            st.success("Assignment removed!")
+                            st.rerun()
         else:
             st.info("No employees currently assigned to this transaction")
     except Exception as e:
@@ -635,15 +624,15 @@ def display_employee_assignment_dialog(transaction: Dict[str, Any]) -> None:
     # Get currently assigned employees
     assignments_query = """
     SELECT e.EMPLOYEE_ID, e.FIRST_NAME, e.LAST_NAME, e.JOB_TITLE,
-           sa.ASSIGNMENT_ID, sa.HOURLY_RATE_OVERRIDE
+           sa.ASSIGNMENT_ID, sa.NOTES
     FROM OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS sa
     JOIN OPERATIONAL.CARPET.EMPLOYEE e ON sa.EMPLOYEE_ID = e.EMPLOYEE_ID
-    WHERE sa.TRANSACTION_ID = ? AND sa.SERVICE_ID = ?
+    WHERE sa.TRANSACTION_ID = ?
     """
     
     try:
         employees = conn.execute_query(employees_query)
-        current_assignments = conn.execute_query(assignments_query, [transaction['TRANSACTION_ID'], service_id])
+        current_assignments = conn.execute_query(assignments_query, [transaction['TRANSACTION_ID']])
         
         if employees:
             assigned_employee_ids = [a['EMPLOYEE_ID'] for a in current_assignments] if current_assignments else []
@@ -656,9 +645,9 @@ def display_employee_assignment_dialog(transaction: Dict[str, Any]) -> None:
                     with col1:
                         st.markdown(f"• {assignment['FIRST_NAME']} {assignment['LAST_NAME']} ({assignment['JOB_TITLE']})")
                     with col2:
-                        override_rate = assignment.get('HOURLY_RATE_OVERRIDE')
-                        if override_rate:
-                            st.markdown(f"${override_rate:.2f}/hr")
+                        notes = assignment.get('NOTES', '')
+                        if notes:
+                            st.markdown(f"*{notes}*")
                     with col3:
                         if st.button("🗑️", key=f"remove_assign_{assignment['ASSIGNMENT_ID']}", help="Remove assignment"):
                             if remove_employee_assignment(assignment['ASSIGNMENT_ID']):
@@ -887,16 +876,19 @@ def assign_employee_to_service(transaction_id: int, service_id: int, employee_id
     """Assign an employee to a specific service in a transaction"""
     conn = SnowflakeConnection.get_instance()
     
+    # Note: service_id and hourly_rate parameters are kept for API compatibility
+    # but not stored in the current table structure
     query = """
     INSERT INTO OPERATIONAL.CARPET.SERVICE_ASSIGNMENTS (
-        TRANSACTION_ID, SERVICE_ID, EMPLOYEE_ID, HOURLY_RATE_OVERRIDE, 
-        ASSIGNMENT_DATE, IS_ACTIVE
+        TRANSACTION_ID, EMPLOYEE_ID, ASSIGNMENT_STATUS, NOTES
     )
-    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP(), TRUE)
+    VALUES (?, ?, 'ASSIGNED', ?)
     """
     
+    notes = f"Service ID: {service_id}, Hourly Rate: ${hourly_rate:.2f}"
+    
     try:
-        conn.execute_query(query, [transaction_id, service_id, employee_id, hourly_rate])
+        conn.execute_query(query, [transaction_id, employee_id, notes])
         return True
     except Exception as e:
         st.error(f"Error assigning employee: {str(e)}")
